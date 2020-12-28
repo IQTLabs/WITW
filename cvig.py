@@ -88,7 +88,17 @@ class Reflection(object):
         coin_toss = torch.randint(2, ()).item()
         if coin_toss > 0:
             data['surface'] = data['surface'].flip(-1)
-            data['overhead'] = data['surface'].flip(self.overhead_axis)
+            data['overhead'] = data['overhead'].flip(self.overhead_axis)
+        return data
+
+
+class RandomHorizontalShift(object):
+    """
+    Shift a 360-degree surface panorama by a random amount.
+    """
+    def __call__(self, data):
+        data['surface'] = surface_horizontal_shift(
+            data['surface'], torch.rand(()), unit='fraction')
         return data
 
 
@@ -225,6 +235,7 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
     # Data augmentation
     transform = torchvision.transforms.Compose([
         QuadRotation(),
+        Reflection(),
         SurfaceVertStretch()
     ])
     
