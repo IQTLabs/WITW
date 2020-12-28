@@ -8,6 +8,8 @@ Cross-View Image Geolocalization (CVIG)
 import os
 import sys
 import glob
+import math
+import time
 import numpy as np
 import pandas as pd
 from skimage import io
@@ -18,6 +20,76 @@ import torch.nn.functional as F
 import torchvision
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+
+class SurfaceVertStretch(object):
+    """
+    Stretch the surface image vertically by a factor of 2.
+    This is a fix for CVUSA to fit this model architecture.
+    """
+    def __call__(self, data):
+        data['surface'] = torch.repeat_interleave(data['surface'], 2, dim=-2)
+        return data
+
+
+def surface_horizontal_shift(surface, shift, unit='pixels'):
+    """
+    Shift a 360-degree surface panorama clockwise (i.e., as if the viewer
+    were turning in a counterclockwise direction) by the specified amount.
+    """
+    if unit.lower() in ['pixels', 'pixel', 'p']:
+        shift = round(shift)
+    elif unit.lower() in ['fraction', 'fractions', 'f']:
+        shift = round(shift * surface.size(-1))
+    elif unit.lower() in ['degrees', 'degree', 'd']:
+        shift = round(shift * surface.size(-1) / 360.)
+    elif unit.lower() in ['radians', 'radian', 'r']:
+        shift = round(shift * surface.size(-1) / (2 * math.pi))
+    else:
+        raise Exception('! Invalid unit in SurfaceHorizontalShift')
+    return torch.roll(surface, shift, dims=-1)
+
+def overhead_quantized_rotation(overhead, factor):
+    """
+    Rotate an image clockwise by an integer factor times 90 degrees.
+    """
+    if factor % 4 == 0:
+        pass
+    elif factor % 4 == 1:
+        overhead = overhead.transpose(-2, -1).flip(-2)
+    elif factor % 4 == 2:
+        overhead = overhead.flip(-2).flip(-1)
+    elif factor % 4 == 3:
+        overhead = overhead.transpose(-2, -1).flip(-1)
+    return overhead
+
+class QuadRotation(object):
+    """
+    Shift surface image and rotate overhead image as if the viewer turned
+    by a random multiple of 90 degrees.
+    """
+    def __call__(self, data):
+        factor = torch.randint(4, ()).item()
+        data['surface'] = surface_horizontal_shift(
+            data['surface'], factor * 90., 'degrees')
+        data['overhead'] = overhead_quantized_rotation(
+            data['overhead'], factor)
+        return data
+
+
+class Reflection(object):
+    """
+    Take mirror image of data, half of the time.
+    """
+    def __init__(self, overhead_axis=-1):
+        self.overhead_axis = overhead_axis
+
+    def __call__(self, data):
+        coin_toss = torch.randint(2, ()).item()
+        if coin_toss > 0:
+            data['surface'] = data['surface'].flip(-1)
+            data['overhead'] = data['surface'].flip(self.overhead_axis)
+        return data
 
 
 class ImagePairDataset(torch.utils.data.Dataset):
@@ -48,19 +120,19 @@ class ImagePairDataset(torch.utils.data.Dataset):
         return len(self.file_paths)
 
     def __getitem__(self, idx):
+        # Load data
         surface_path = self.file_paths.iloc[idx]['surface']
         overhead_path = self.file_paths.iloc[idx]['overhead']
         surface_raw = io.imread(surface_path)
         overhead_raw = io.imread(overhead_path)
         surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
         overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'surface':surface, 'overhead':overhead}
+
+        # Transform data
         if self.transform is not None:
-            pass #Apply data augmentation here
-
-        # Fix for CVUSA: stretch surface image to fit architecture
-        surface = torch.repeat_interleave(surface, 2, dim=1)
-
-        return {'surface':surface, 'overhead':overhead}
+            data = self.transform(data)
+        return data
 
 
 class SurfaceEncoder(nn.Module):
@@ -148,16 +220,19 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     return loss
 
 
-def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=12, num_epochs=999999):
+def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=12, num_workers=16, num_epochs=999999):
 
     # Data augmentation
-    transform = None
+    transform = torchvision.transforms.Compose([
+        QuadRotation(),
+        SurfaceVertStretch()
+    ])
     
     # Source the training and validation data
     trainval_set = ImagePairDataset(csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
     surface_encoder = SurfaceEncoder().to(device)
@@ -175,7 +250,7 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
     # Loop through epochs
     best_loss = None
     for epoch in range(num_epochs):
-        print('Epoch %d' % (epoch + 1))
+        print('Epoch %d, %s' % (epoch + 1, time.ctime(time.time())))
 
         for phase in ['train', 'val']:
             running_count = 0
@@ -222,11 +297,14 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12):
+def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12, num_workers=16):
 
+    # Specify transformation, if any
+    transform = SurfaceVertStretch()
+    
     # Source the test data
-    test_set = ImagePairDataset(csv_path=csv_path, transform=None)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+    test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural network
     surface_encoder = SurfaceEncoder().to(device)
