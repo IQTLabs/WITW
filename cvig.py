@@ -98,7 +98,7 @@ class RandomHorizontalShift(object):
     """
     def __call__(self, data):
         data['surface'] = surface_horizontal_shift(
-            data['surface'], torch.rand(()), unit='fraction')
+            data['surface'], torch.rand(()).item(), unit='fraction')
         return data
 
 
@@ -236,6 +236,7 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
     transform = torchvision.transforms.Compose([
         QuadRotation(),
         Reflection(),
+        #RandomHorizontalShift(),
         SurfaceVertStretch()
     ])
     
@@ -347,33 +348,27 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12, num_workers=16)
                 overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
 
     # Measure performance
-    top_one = 0
-    top_five = 0
-    top_ten = 0
-    top_percent = 0
-    rank_sum = 0
     count = surface_embed.size(0)
+    ranks = np.zeros([count], dtype=int)
     for idx in range(count):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
         distances = torch.pow(torch.sum(torch.pow(overhead_embed - this_surface_embed, 2), dim=1), 0.5)
         distance = distances[idx]
-        rank = torch.sum(torch.le(distances, distance)).item()
-        if rank <= 1:
-            top_one += 1
-        if rank <= 5:
-            top_five += 1
-        if rank <= 10:
-            top_ten += 1
-        if rank * 100 <= count:
-            top_percent += 1
-        rank_sum += rank
+        ranks[idx] = torch.sum(torch.le(distances, distance)).item()
+    top_one = np.sum(ranks <= 1) / count * 100
+    top_five = np.sum(ranks <= 5) / count * 100
+    top_ten = np.sum(ranks <= 10) / count * 100
+    top_percent = np.sum(ranks * 100 <= count) / count * 100
+    mean = np.mean(ranks)
+    median = np.median(ranks)
 
     # Print performance
-    print('Top  1: {:.2f}%'.format(top_one / count * 100))
-    print('Top  5: {:.2f}%'.format(top_five / count * 100))
-    print('Top 10: {:.2f}%'.format(top_ten / count * 100))
-    print('Top 1%: {:.2f}%'.format(top_percent / count * 100))
-    print('Avg. Rank: {:.2f}'.format(rank_sum / count))
+    print('Top  1: {:.2f}%'.format(top_one))
+    print('Top  5: {:.2f}%'.format(top_five))
+    print('Top 10: {:.2f}%'.format(top_ten))
+    print('Top 1%: {:.2f}%'.format(top_percent))
+    print('Avg. Rank: {:.2f}'.format(mean))
+    print('Med. Rank: {:.2f}'.format(median))
     print('Locations: {}'.format(count))
 
 
