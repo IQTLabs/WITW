@@ -148,10 +148,10 @@ class ImagePairDataset(torch.utils.data.Dataset):
 class SurfaceEncoder(nn.Module):
     def __init__(self, orientation=True, bands=3, p=3.):
         super().__init__()
-        self.overhead = False
         self.orientation = orientation
         self.bands = bands
         self.p = p
+        self.orientation_dict = {}
         self.inputs = self.bands + 2 * self.orientation
         self.conv_kwargs = {'kernel_size':4, 'stride':2, 'padding':0}
         self.activation = nn.LeakyReLU(0.2)
@@ -185,17 +185,20 @@ class SurfaceEncoder(nn.Module):
         """
         Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
         """
-        shape = (x.size(-2), x.size(-1))
-        uv = np.indices(shape, dtype=float)
-        uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
-        if self.overhead:
-            uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
-                           np.arctan2(uv[1], -uv[0])
-        uv = torch.tensor(uv, dtype=torch.float).to(x.device)
-        uv = uv.expand((x.size(0), -1, -1, -1))
-        if self.overhead:
-            print(uv)
-        return uv
+        description = (x.shape, x.device)
+        if description in self.orientation_dict.keys():
+            return self.orientation_dict[description]
+        else:
+            shape = (x.size(-2), x.size(-1))
+            uv = np.indices(shape, dtype=float)
+            uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
+            if type(self) is OverheadEncoder:
+                uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
+                               np.arctan2(uv[1], -uv[0])
+            uv = torch.tensor(uv, dtype=torch.float).to(x.device)
+            uv = uv.expand((x.size(0), -1, -1, -1))
+            self.orientation_dict[description] = uv
+            return uv
 
     def forward(self, x):
         x = x / 255.
@@ -218,9 +221,7 @@ class SurfaceEncoder(nn.Module):
 
 
 class OverheadEncoder(SurfaceEncoder):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.overhead = True
+    pass
 
 
 def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=10., margin=1.):
