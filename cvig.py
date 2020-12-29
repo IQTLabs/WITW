@@ -102,6 +102,21 @@ class RandomHorizontalShift(object):
         return data
 
 
+class ConstrainedHorizontalShift(object):
+    """
+    Shift a 360-degree surface panorama by a random amount within a set range.
+    """
+    def __init__(self, max_shift=10, unit='pixels'):
+        self.max_shift = max_shift
+        self.unit = unit
+
+    def __call__(self, data):
+        shift = self.max_shift * (-1. + 2 * torch.rand(()).item())
+        data['surface'] = surface_horizontal_shift(
+            data['surface'], shift, unit=self.unit)
+        return data
+
+
 class ImagePairDataset(torch.utils.data.Dataset):
     """
     Load pairs of images (one surface and one overhead)
@@ -260,8 +275,9 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
 
     # Data augmentation
     transform = torchvision.transforms.Compose([
-        #QuadRotation(),
-        #Reflection(),
+        QuadRotation(),
+        Reflection(),
+        ConstrainedHorizontalShift(5, 'degree'),
         #RandomHorizontalShift(),
         SurfaceVertStretch()
     ])
