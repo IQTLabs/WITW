@@ -146,15 +146,18 @@ class ImagePairDataset(torch.utils.data.Dataset):
 
 
 class SurfaceEncoder(nn.Module):
-    def __init__(self, p=3.):
+    def __init__(self, orientation=True, bands=3, p=3.):
         super().__init__()
-        self.bands = 3
+        self.overhead = False
+        self.orientation = orientation
+        self.bands = bands
         self.p = p
+        self.inputs = self.bands + 2 * self.orientation
         self.conv_kwargs = {'kernel_size':4, 'stride':2, 'padding':0}
         self.activation = nn.LeakyReLU(0.2)
         self.bn_kwargs = {'momentum':0.1, 'affine':True, 'track_running_stats':True}
         
-        self.conv1 = nn.Conv2d(self.bands, 64, **self.conv_kwargs)
+        self.conv1 = nn.Conv2d(self.inputs, 64, **self.conv_kwargs)
         self.bn1 = nn.BatchNorm2d(64, **self.bn_kwargs)
         self.conv2 = nn.Conv2d(64, 128, **self.conv_kwargs)
         self.bn2 = nn.BatchNorm2d(128, **self.bn_kwargs)
@@ -178,8 +181,27 @@ class SurfaceEncoder(nn.Module):
                 torch.nn.init.normal_(module.bias, mean=0.0, std=0.02)
         self.apply(set_initial_weights)
 
+    def orientation_map(self, x):
+        """
+        Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
+        """
+        shape = (x.size(-2), x.size(-1))
+        uv = np.indices(shape, dtype=float)
+        uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
+        if self.overhead:
+            uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
+                           np.arctan2(uv[1], -uv[0])
+        uv = torch.tensor(uv, dtype=torch.float).to(x.device)
+        uv = uv.expand((x.size(0), -1, -1, -1))
+        if self.overhead:
+            print(uv)
+        return uv
+
     def forward(self, x):
         x = x / 255.
+        if self.orientation:
+            uv = self.orientation_map(x)
+            x = torch.cat((x, uv), dim=1)
         x = self.bn1(self.activation(self.conv1(x)))
         x = self.bn2(self.activation(self.conv2(x)))
         x = self.bn3(self.activation(self.conv3(x)))
@@ -195,7 +217,10 @@ class SurfaceEncoder(nn.Module):
         return f
 
 
-OverheadEncoder = SurfaceEncoder
+class OverheadEncoder(SurfaceEncoder):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.overhead = True
 
 
 def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=10., margin=1.):
@@ -234,8 +259,8 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
 
     # Data augmentation
     transform = torchvision.transforms.Compose([
-        QuadRotation(),
-        Reflection(),
+        #QuadRotation(),
+        #Reflection(),
         #RandomHorizontalShift(),
         SurfaceVertStretch()
     ])
