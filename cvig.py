@@ -217,6 +217,7 @@ class SurfaceEncoder(nn.Module):
 
     def forward(self, x):
         x = x / 255.
+        x = -1. + 2. * x
         if self.orientation:
             uv = self.orientation_map(x)
             x = torch.cat((x, uv), dim=1)
@@ -277,8 +278,8 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
     transform = torchvision.transforms.Compose([
         QuadRotation(),
         Reflection(),
-        ConstrainedHorizontalShift(5, 'degree'),
-        #RandomHorizontalShift(),
+        #ConstrainedHorizontalShift(5, 'degree'),
+        RandomHorizontalShift(),
         SurfaceVertStretch()
     ])
     
