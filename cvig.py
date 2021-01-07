@@ -22,17 +22,7 @@ import torchvision
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
-class SurfaceVertStretch(object):
-    """
-    Stretch the surface image vertically by a factor of 2.
-    This is a fix for CVUSA to fit this model architecture.
-    """
-    def __call__(self, data):
-        data['surface'] = torch.repeat_interleave(data['surface'], 2, dim=-2)
-        return data
-
-
-def surface_horizontal_shift(surface, shift, unit='pixels'):
+def horizontal_shift(surface, shift, unit='pixels'):
     """
     Shift a 360-degree surface panorama clockwise (i.e., as if the viewer
     were turning in a counterclockwise direction) by the specified amount.
@@ -49,7 +39,8 @@ def surface_horizontal_shift(surface, shift, unit='pixels'):
         raise Exception('! Invalid unit in SurfaceHorizontalShift')
     return torch.roll(surface, shift, dims=-1)
 
-def overhead_quantized_rotation(overhead, factor):
+
+def quantized_rotation(overhead, factor):
     """
     Rotate an image clockwise by an integer factor times 90 degrees.
     """
@@ -63,58 +54,120 @@ def overhead_quantized_rotation(overhead, factor):
         overhead = overhead.transpose(-2, -1).flip(-1)
     return overhead
 
-class QuadRotation(object):
+
+def orientation_map(x, view='surface', orientation_dict=None):
     """
-    Shift surface image and rotate overhead image as if the viewer turned
-    by a random multiple of 90 degrees.
+    Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
+
+    Arguments:
+    x = input image tensor
+    view = 'surface' or 'overhead'
+    orientation_dict = a dictionary in which to save previous results
+        for possible reuse (this improves performance)
     """
+    if orientation_dict is not None:
+        description = (view, x.shape, x.device)
+    if orientation_dict is not None and description in orientation_dict.keys():
+        return orientation_dict[description]
+    else:
+        shape = (x.size(-2), x.size(-1))
+        uv = np.indices(shape, dtype=float)
+        uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
+        if view == 'overhead':
+            uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
+                           np.arctan2(uv[1], -uv[0])
+        uv = torch.tensor(uv, dtype=torch.float).to(x.device)
+        #uv = uv.expand((x.size(0), -1, -1, -1))
+        if orientation_dict is not None:
+            orientation_dict[description] = uv
+        return uv
+
+
+class OrientationMaps(object):
+    """
+    Applies appropriate "orientation map" tensors to surface/overhead pair.
+    See Liu & Li CVPR 2019.
+    """
+    orientation_dicts = [{}, {}]
+    
     def __call__(self, data):
-        factor = torch.randint(4, ()).item()
-        data['surface'] = surface_horizontal_shift(
-            data['surface'], factor * 90., 'degrees')
-        data['overhead'] = overhead_quantized_rotation(
-            data['overhead'], factor)
+        for view, od in zip(['surface', 'overhead'], self.orientation_dicts):
+            x = data[view]
+            uv = orientation_map(data[view], view, od)
+            cat = torch.cat((x, uv), dim=0)
+            data[view] = cat
         return data
 
 
-class Reflection(object):
+class Reorient(object):
     """
-    Take mirror image of data, half of the time.
-    """
-    def __init__(self, overhead_axis=-1):
-        self.overhead_axis = overhead_axis
-
-    def __call__(self, data):
-        coin_toss = torch.randint(2, ()).item()
-        if coin_toss > 0:
-            data['surface'] = data['surface'].flip(-1)
-            data['overhead'] = data['overhead'].flip(self.overhead_axis)
-        return data
-
-
-class RandomHorizontalShift(object):
-    """
-    Shift a 360-degree surface panorama by a random amount.
+    Shift a 360-degree surface panorama by a random amount, and rotate the
+    overhead image by an independent random number of 90-degree rotations.
     """
     def __call__(self, data):
-        data['surface'] = surface_horizontal_shift(
+        data['surface'] = horizontal_shift(
             data['surface'], torch.rand(()).item(), unit='fraction')
+        data['overhead'] = quantized_rotation(
+            data['overhead'], torch.randint(4, ()).item())
         return data
 
 
-class ConstrainedHorizontalShift(object):
+class SurfaceVertStretch(object):
     """
-    Shift a 360-degree surface panorama by a random amount within a set range.
+    Stretch the surface image vertically by a factor of 2.
+    This is a fix for CVUSA to fit this model architecture.
     """
-    def __init__(self, max_shift=10, unit='pixels'):
-        self.max_shift = max_shift
-        self.unit = unit
-
     def __call__(self, data):
-        shift = self.max_shift * (-1. + 2 * torch.rand(()).item())
-        data['surface'] = surface_horizontal_shift(
-            data['surface'], shift, unit=self.unit)
+        data['surface'] = torch.repeat_interleave(data['surface'], 2, dim=-2)
         return data
+
+
+# class Reflection(object):
+#     """
+#     Take mirror image of data, half of the time.
+#     """
+#     def __init__(self, overhead_axis=-1):
+#         self.overhead_axis = overhead_axis
+
+#     def __call__(self, data):
+#         coin_toss = torch.randint(2, ()).item()
+#         if coin_toss > 0:
+#             data['surface'] = data['surface'].flip(-1)
+#             data['overhead'] = data['overhead'].flip(self.overhead_axis)
+#         return data
+# class QuadRotation(object):
+#     """
+#     Shift surface image and rotate overhead image as if the viewer turned
+#     by a random multiple of 90 degrees.
+#     """
+#     def __call__(self, data):
+#         factor = torch.randint(4, ()).item()
+#         data['surface'] = surface_horizontal_shift(
+#             data['surface'], factor * 90., 'degrees')
+#         data['overhead'] = overhead_quantized_rotation(
+#             data['overhead'], factor)
+#         return data
+# class RandomHorizontalShift(object):
+#     """
+#     Shift a 360-degree surface panorama by a random amount.
+#     """
+#     def __call__(self, data):
+#         data['surface'] = surface_horizontal_shift(
+#             data['surface'], torch.rand(()).item(), unit='fraction')
+#         return data
+# class ConstrainedHorizontalShift(object):
+#     """
+#     Shift a 360-degree surface panorama by a random amount within a set range.
+#     """
+#     def __init__(self, max_shift=10, unit='pixels'):
+#         self.max_shift = max_shift
+#         self.unit = unit
+
+#     def __call__(self, data):
+#         shift = self.max_shift * (-1. + 2 * torch.rand(()).item())
+#         data['surface'] = surface_horizontal_shift(
+#             data['surface'], shift, unit=self.unit)
+#         return data
 
 
 class ImagePairDataset(torch.utils.data.Dataset):
@@ -161,12 +214,11 @@ class ImagePairDataset(torch.utils.data.Dataset):
 
 
 class SurfaceEncoder(nn.Module):
-    def __init__(self, orientation=True, bands=3, p=3.):
+    def __init__(self, orientation=False, bands=3, p=3.):
         super().__init__()
         self.orientation = orientation
         self.bands = bands
         self.p = p
-        self.orientation_dict = {}
         self.inputs = self.bands + 2 * self.orientation
         self.conv_kwargs = {'kernel_size':4, 'stride':2, 'padding':0}
         self.activation = nn.LeakyReLU(0.2)
@@ -196,31 +248,9 @@ class SurfaceEncoder(nn.Module):
                 torch.nn.init.normal_(module.bias, mean=0.0, std=0.02)
         self.apply(set_initial_weights)
 
-    def orientation_map(self, x):
-        """
-        Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
-        """
-        description = (x.shape, x.device)
-        if description in self.orientation_dict.keys():
-            return self.orientation_dict[description]
-        else:
-            shape = (x.size(-2), x.size(-1))
-            uv = np.indices(shape, dtype=float)
-            uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
-            if type(self) is OverheadEncoder:
-                uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
-                               np.arctan2(uv[1], -uv[0])
-            uv = torch.tensor(uv, dtype=torch.float).to(x.device)
-            uv = uv.expand((x.size(0), -1, -1, -1))
-            self.orientation_dict[description] = uv
-            return uv
-
     def forward(self, x):
         x = x / 255.
         x = -1. + 2. * x
-        if self.orientation:
-            uv = self.orientation_map(x)
-            x = torch.cat((x, uv), dim=1)
         x = self.bn1(self.activation(self.conv1(x)))
         x = self.bn2(self.activation(self.conv2(x)))
         x = self.bn3(self.activation(self.conv3(x)))
@@ -244,11 +274,11 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     """
     Arguments:
         embed1: Minibatch of embeddings.  Shape = (batch size, dimensionality
-                of feature vector)
+            of feature vector)
         embed2: Corresponding embeddings, such as from the other branch of a
-                Siamese network
+            Siamese network
         soft_margin: False for hard-margin triplet loss; true for soft-margin
-                     triplet loss
+            triplet loss
         alpha: Parameter used by soft-margin triplet loss
         margin: Parameter used by hard-margin triplet loss
     Output:
@@ -274,12 +304,10 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
 
 def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=12, num_workers=16, num_epochs=999999):
 
-    # Data augmentation
+    # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        QuadRotation(),
-        Reflection(),
-        #ConstrainedHorizontalShift(5, 'degree'),
-        RandomHorizontalShift(),
+        #OrientationMaps(),
+        #Reorient(),
         SurfaceVertStretch()
     ])
     
@@ -355,7 +383,10 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
 def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12, num_workers=16):
 
     # Specify transformation, if any
-    transform = SurfaceVertStretch()
+    transform = torchvision.transforms.Compose([
+        #OrientationMaps(),
+        SurfaceVertStretch()
+    ])
     
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
