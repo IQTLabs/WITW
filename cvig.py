@@ -71,13 +71,15 @@ def orientation_map(x, view='surface', orientation_dict=None):
         return orientation_dict[description]
     else:
         shape = (x.size(-2), x.size(-1))
+        shape_expanded = np.expand_dims(np.array(shape), (1,2))
+        shape_max = max(shape)
         uv = np.indices(shape, dtype=float)
-        uv = (uv / (np.expand_dims(np.array(shape), (1,2)) - 1)) * 2. - 1.
+        uv = (2 * uv - shape_expanded + 1) / (shape_max - 1)
         if view == 'overhead':
-            uv[0], uv[1] = np.sqrt(uv[0]**2 + uv[1]**2), \
-                           np.arctan2(uv[1], -uv[0])
+            uv[0], uv[1] = (np.sqrt(uv[0]**2 + uv[1]**2) / math.sqrt(2)) \
+                           * 2. - 1., \
+                           np.arctan2(uv[1], -uv[0]) / math.pi
         uv = torch.tensor(uv, dtype=torch.float).to(x.device)
-        #uv = uv.expand((x.size(0), -1, -1, -1))
         if orientation_dict is not None:
             orientation_dict[description] = uv
         return uv
@@ -122,6 +124,18 @@ class SurfaceVertStretch(object):
         return data
 
 
+class OverheadResizeCrop(object):
+    """
+    Crop, then resize, overhead image for data augmentation.
+    Currently hardwired for CVUSA size.
+    """
+    def __call__(self, data):
+        new_size = torch.randint(512, 750, ()).item()
+        transform1 = torchvision.transforms.RandomCrop(new_size)
+        transform2 = torchvision.transforms.Resize(512)
+        transform = torchvision.transforms.Compose([transform1, transform2])
+        data['overhead'] = transform(data['overhead'])
+        return data
 # class Reflection(object):
 #     """
 #     Take mirror image of data, half of the time.
@@ -214,7 +228,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
 
 
 class SurfaceEncoder(nn.Module):
-    def __init__(self, orientation=False, bands=3, p=3.):
+    def __init__(self, orientation=True, bands=3, p=3.):
         super().__init__()
         self.orientation = orientation
         self.bands = bands
@@ -306,8 +320,9 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        #OrientationMaps(),
-        #Reorient(),
+        OverheadResizeCrop(),
+        OrientationMaps(),
+        Reorient(),
         SurfaceVertStretch()
     ])
     
@@ -384,7 +399,7 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12, num_workers=16)
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        #OrientationMaps(),
+        OrientationMaps(),
         SurfaceVertStretch()
     ])
     
