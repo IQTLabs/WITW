@@ -237,7 +237,7 @@ class SurfaceEncoder(nn.Module):
         self.conv_kwargs = {'kernel_size':4, 'stride':2, 'padding':0}
         self.activation = nn.LeakyReLU(0.2)
         self.bn_kwargs = {'momentum':0.1, 'affine':True, 'track_running_stats':True}
-        
+
         self.conv1 = nn.Conv2d(self.inputs, 64, **self.conv_kwargs)
         self.bn1 = nn.BatchNorm2d(64, **self.bn_kwargs)
         self.conv2 = nn.Conv2d(64, 128, **self.conv_kwargs)
@@ -316,13 +316,13 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     return loss
 
 
-def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=12, num_workers=16, num_epochs=999999):
+def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=48, num_workers=16, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        OverheadResizeCrop(),
+        #OverheadResizeCrop(),
         OrientationMaps(),
-        Reorient(),
+        #Reorient(),
         SurfaceVertStretch()
     ])
     
@@ -395,7 +395,7 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(csv_path = '/local_data/cvusa/test.csv', batch_size=12, num_workers=16):
+def test(csv_path = '/local_data/cvusa/test.csv', batch_size=48, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
