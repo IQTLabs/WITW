@@ -22,37 +22,37 @@ import torchvision
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
-def horizontal_shift(surface, shift, unit='pixels'):
+def horizontal_shift(img, shift, unit='pixels'):
     """
-    Shift a 360-degree surface panorama clockwise (i.e., as if the viewer
-    were turning in a counterclockwise direction) by the specified amount.
+    Shift a 360-degree surface panorama counterclockwise (i.e., as if the
+    viewer were turning in a clockwise direction) by the specified amount.
     """
     if unit.lower() in ['pixels', 'pixel', 'p']:
-        shift = round(shift)
+        pix_shift = -round(shift)
     elif unit.lower() in ['fraction', 'fractions', 'f']:
-        shift = round(shift * surface.size(-1))
+        pix_shift = -round(shift * img.size(-1))
     elif unit.lower() in ['degrees', 'degree', 'd']:
-        shift = round(shift * surface.size(-1) / 360.)
+        pix_shift = -round(shift * img.size(-1) / 360.)
     elif unit.lower() in ['radians', 'radian', 'r']:
-        shift = round(shift * surface.size(-1) / (2 * math.pi))
+        pix_shift = -round(shift * img.size(-1) / (2 * math.pi))
     else:
-        raise Exception('! Invalid unit in SurfaceHorizontalShift')
-    return torch.roll(surface, shift, dims=-1)
+        raise Exception('! Invalid unit in horizontal_shift()')
+    return torch.roll(img, pix_shift, dims=-1)
 
 
-def quantized_rotation(overhead, factor):
+def quantized_rotation(img, factor):
     """
-    Rotate an image clockwise by an integer factor times 90 degrees.
+    Rotate an image counterclockwise by an integer factor times 90 degrees.
     """
     if factor % 4 == 0:
         pass
     elif factor % 4 == 1:
-        overhead = overhead.transpose(-2, -1).flip(-2)
+        img = img.transpose(-2, -1).flip(-1)
     elif factor % 4 == 2:
-        overhead = overhead.flip(-2).flip(-1)
+        img = img.flip(-2).flip(-1)
     elif factor % 4 == 3:
-        overhead = overhead.transpose(-2, -1).flip(-1)
-    return overhead
+        img = img.transpose(-2, -1).flip(-2)
+    return img
 
 
 def orientation_map(x, view='surface', orientation_dict=None):
@@ -101,16 +101,30 @@ class OrientationMaps(object):
         return data
 
 
-class Reorient(object):
+class SyncedRotation(object):
     """
-    Shift a 360-degree surface panorama by a random amount, and rotate the
-    overhead image by an independent random number of 90-degree rotations.
+    Shift a 360-degree surface panorama and rotate 
+    the overhead image by the same random angle.
     """
     def __call__(self, data):
+        angle = torch.rand(()).item() * 360.
         data['surface'] = horizontal_shift(
-            data['surface'], torch.rand(()).item(), unit='fraction')
-        data['overhead'] = quantized_rotation(
-            data['overhead'], torch.randint(4, ()).item())
+            data['surface'], angle, unit='degrees')
+        data['overhead'] = torchvision.transforms.functional.rotate(
+            data['overhead'], angle)
+        return data
+
+
+class QuantizedSyncedRotation(object):
+    """
+    Shift a 360-degree surface panorama and rotate the
+    overhead image by the same random multiple of 90 degrees.
+    """
+    def __call__(self, data):
+        factor = torch.randint(4, ()).item()
+        data['surface'] = horizontal_shift(
+            data['surface'], factor * 90, unit='degrees')
+        data['overhead'] = quantized_rotation(data['overhead'], factor)
         return data
 
 
@@ -124,18 +138,29 @@ class SurfaceVertStretch(object):
         return data
 
 
-class OverheadResizeCrop(object):
-    """
-    Crop, then resize, overhead image for data augmentation.
-    Currently hardwired for CVUSA size.
-    """
-    def __call__(self, data):
-        new_size = torch.randint(512, 750, ()).item()
-        transform1 = torchvision.transforms.RandomCrop(new_size)
-        transform2 = torchvision.transforms.Resize(512)
-        transform = torchvision.transforms.Compose([transform1, transform2])
-        data['overhead'] = transform(data['overhead'])
-        return data
+# class Reorient(object):
+#     """
+#     Shift a 360-degree surface panorama by a random amount, and rotate the
+#     overhead image by an independent random number of 90-degree rotations.
+#     """
+#     def __call__(self, data):
+#         data['surface'] = horizontal_shift(
+#             data['surface'], torch.rand(()).item(), unit='fraction')
+#         data['overhead'] = quantized_rotation(
+#             data['overhead'], torch.randint(4, ()).item())
+#         return data
+# class OverheadResizeCrop(object):
+#     """
+#     Crop, then resize, overhead image for data augmentation.
+#     Currently hardwired for CVUSA size.
+#     """
+#     def __call__(self, data):
+#         new_size = torch.randint(512, 750, ()).item()
+#         transform1 = torchvision.transforms.RandomCrop(new_size)
+#         transform2 = torchvision.transforms.Resize(512)
+#         transform = torchvision.transforms.Compose([transform1, transform2])
+#         data['overhead'] = transform(data['overhead'])
+#         return data
 # class Reflection(object):
 #     """
 #     Take mirror image of data, half of the time.
@@ -236,7 +261,8 @@ class SurfaceEncoder(nn.Module):
         self.inputs = self.bands + 2 * self.orientation
         self.conv_kwargs = {'kernel_size':4, 'stride':2, 'padding':0}
         self.activation = nn.LeakyReLU(0.2)
-        self.bn_kwargs = {'momentum':0.1, 'affine':True, 'track_running_stats':True}
+        self.bn_kwargs = {'momentum':0.1, 'affine':True,
+                          'track_running_stats':True}
 
         self.conv1 = nn.Conv2d(self.inputs, 64, **self.conv_kwargs)
         self.bn1 = nn.BatchNorm2d(64, **self.bn_kwargs)
@@ -320,9 +346,8 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        #OverheadResizeCrop(),
+        QuantizedSyncedRotation(),
         OrientationMaps(),
-        #Reorient(),
         SurfaceVertStretch()
     ])
     
