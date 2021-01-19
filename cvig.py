@@ -138,17 +138,17 @@ class SurfaceVertStretch(object):
         return data
 
 
-# class Reorient(object):
-#     """
-#     Shift a 360-degree surface panorama by a random amount, and rotate the
-#     overhead image by an independent random number of 90-degree rotations.
-#     """
-#     def __call__(self, data):
-#         data['surface'] = horizontal_shift(
-#             data['surface'], torch.rand(()).item(), unit='fraction')
-#         data['overhead'] = quantized_rotation(
-#             data['overhead'], torch.randint(4, ()).item())
-#         return data
+class Reorient(object):
+    """
+    Shift a 360-degree surface panorama by a random amount, and rotate the
+    overhead image by an independent random number of 90-degree rotations.
+    """
+    def __call__(self, data):
+        data['surface'] = horizontal_shift(
+            data['surface'], torch.rand(()).item(), unit='fraction')
+        data['overhead'] = quantized_rotation(
+            data['overhead'], torch.randint(4, ()).item())
+        return data
 # class OverheadResizeCrop(object):
 #     """
 #     Crop, then resize, overhead image for data augmentation.
@@ -342,11 +342,11 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     return loss
 
 
-def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=48, num_workers=16, num_epochs=999999):
+def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        QuantizedSyncedRotation(),
+        #Reorient(), #QuantizedSyncedRotation(),
         OrientationMaps(),
         SurfaceVertStretch()
     ])
@@ -420,10 +420,11 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(csv_path = '/local_data/cvusa/test.csv', batch_size=48, num_workers=16):
+def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
+        #Reorient(), #QuantizedSyncedRotation(),
         OrientationMaps(),
         SurfaceVertStretch()
     ])
