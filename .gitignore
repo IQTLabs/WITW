@@ -3,6 +3,10 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#SECRETS DON NOT COMMIT!
+flickr_api_key.txt
+flickr_api_secret.txt
+
 # C extensions
 *.so
 

@@ -1,7 +1,7 @@
 FROM python:3.9-slim
 LABEL maintainer="Ryan Ashley <rashley@iqt.org>"
 
-COPY ./src .
+COPY flickr/src .
 
 RUN apt-get update && \
   python3 -m pip install -U pip && \

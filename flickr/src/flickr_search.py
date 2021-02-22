@@ -2,8 +2,16 @@ import os
 from flickrapi import FlickrAPI
 from pprint import pprint
 
-FLICKR_PUBLIC = os.getenv('FLICKR_PUBLIC_KEY')
-FLICKR_SECRET = os.getenv('FLICKR_SECRET')
+def get_secret(secret_name):
+    try:
+        with open('/run/secrets/{0}'.format(secret_name), 'r') as secret_file:
+            return secret_file.read()
+    except IOError:
+        return None
+
+FLICKR_PUBLIC = get_secret('flickr_api_key')
+FLICKR_SECRET = get_secret('flickr_api_secret')
+
 PRIVACY_FILTER = 1 #only public photos
 CONTENT_TYPE = 1 #only photos
 HAS_GEO = True  #only geotagged photos
