@@ -2,6 +2,7 @@ FROM python:3.9-slim
 LABEL maintainer="Ryan Ashley <rashley@iqt.org>"
 
 COPY flickr/src .
+COPY flickr/config.yaml .
 
 RUN apt-get update && \
   python3 -m pip install -U pip && \
