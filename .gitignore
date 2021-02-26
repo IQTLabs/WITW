@@ -7,6 +7,8 @@ __pycache__/
 flickr_api_key.txt
 flickr_api_secret.txt
 
+#data output
+flickr_data/*
 # C extensions
 *.so
 
