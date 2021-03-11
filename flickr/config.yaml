@@ -3,3 +3,7 @@ cities:
     name: "washington d.c."
     bounding_boxes: ["-77.0990375584, 38.8024915206, -76.9067768162, 39.0012743239"]
     download: "metadata" #metadata/photos/both
+ - city:
+    name: "moscow"
+    bounding_boxes: ["55.6093871, 37.6171903, 55.7951024, 37.7819806"]
+    download: "metadata" #metadata/photos/both

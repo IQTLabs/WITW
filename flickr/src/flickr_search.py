@@ -1,3 +1,4 @@
+import json
 import os
 
 from flickrapi import FlickrAPI
@@ -29,19 +30,34 @@ def get_metadata(cfg):
 
     metadata = {}
     for key in cfg:
-        print(f'{key}')
         metadata[key]=[]
         for idx, bbox in enumerate(cfg[key]['bounding_boxes']):
             city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
             has_geo=HAS_GEO, geo_context=GEO_CTX, extras=extras, per_page=100)
+            total_pages = city_pics['photos']['pages']
             metadata[key].insert(idx,city_pics['photos'])
+            for p in range(2, total_pages):
+                city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
+                has_geo=HAS_GEO, geo_context=GEO_CTX, extras=extras, per_page=100, page=p)
+                metadata[key].insert(idx,city_pics['photos'])
 
     return metadata
+
+def write_metadata(metadata):
+    for key in metadata:
+        city=key.replace(" ", "_")
+        directory=f'/data/{city}'
+        if not os.path.exists(directory):
+            os.mkdir(directory)
+
+        file_path=f'{directory}/metadata.json'
+        with open(file_path, 'w') as f:
+            json.dump(metadata[key], f, indent=2)
 
 def main(config_file):
     config = parse_config(config_file)
     metadata = get_metadata(config)
-    pprint(metadata)
+    write_metadata(metadata)
 
 if __name__ == '__main__':  # pragma: no cover
     main('../config.yaml')
