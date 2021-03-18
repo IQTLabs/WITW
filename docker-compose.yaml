@@ -6,6 +6,8 @@ services:
       context: .
       dockerfile: flickr/Dockerfile
     image: 'witw/flickr-client'
+    volumes:
+      - '${PWD}/flickr_data:/data'
     secrets:
       - flickr_api_key
       - flickr_api_secret
