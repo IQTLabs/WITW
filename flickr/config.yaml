@@ -1,9 +1,11 @@
 cities:
  - city:
-    name: "washington d.c."
-    bounding_boxes: ["-77.0990375584, 38.8024915206, -76.9067768162, 39.0012743239"]
-    download: "metadata" #metadata/photos/both
+    name: "las vegas"
+    bounding_boxes: ["-115.3075176, 36.1212777, -115.1526078, 36.2639592"]
+    download: "both"
+    download_limit: 1
  - city:
     name: "moscow"
-    bounding_boxes: ["55.6093871, 37.6171903, 55.7951024, 37.7819806"]
-    download: "metadata" #metadata/photos/both
+    bounding_boxes: ["37.6171903, 55.6093871, 37.7819806, 55.7951024"]
+    download: "both"
+    download_limit: 1

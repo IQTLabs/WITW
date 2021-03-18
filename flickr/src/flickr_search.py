@@ -1,10 +1,15 @@
 import json
 import os
+import httpx
 
 from flickrapi import FlickrAPI
 from pprint import pprint
+from tqdm import tqdm
 
 from config import parse_config
+
+URL_FIELD='url_m'
+PAGE_SIZE=100
 
 def get_secret(secret_name):
     try:
@@ -24,26 +29,29 @@ def get_metadata(cfg):
 
     flickr = FlickrAPI(FLICKR_PUBLIC, FLICKR_SECRET, format='parsed-json')
 
+    license = "1,2,3,4,5,6,7,8,9,10"
     extras ='description,license,date_upload,date_taken,original_format,'
     extras+='last_update,geo,tags, machine_tags, o_dims, media,'
     extras+='url_m,url_n,url_z,url_c,url_l,url_o'
 
     metadata = {}
     for key in cfg:
-        metadata[key]=[]
+        print(f'Retrieving metadata for {key}.')
         for idx, bbox in enumerate(cfg[key]['bounding_boxes']):
             city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
-            has_geo=HAS_GEO, geo_context=GEO_CTX, extras=extras, per_page=100)
+            has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
             total_pages = city_pics['photos']['pages']
-            metadata[key].insert(idx,city_pics['photos'])
-            for p in range(2, total_pages):
+            metadata[key]=city_pics['photos']
+
+            for p in tqdm(range(2, total_pages), desc=key):
                 city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
-                has_geo=HAS_GEO, geo_context=GEO_CTX, extras=extras, per_page=100, page=p)
-                metadata[key].insert(idx,city_pics['photos'])
+                has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
+                metadata[key]['photo'].append(city_pics['photos']['photo'])
+
 
     return metadata
 
-def write_metadata(metadata):
+def write_metadata(metadata, cfg):
     for key in metadata:
         city=key.replace(" ", "_")
         directory=f'/data/{city}'
@@ -51,13 +59,45 @@ def write_metadata(metadata):
             os.mkdir(directory)
 
         file_path=f'{directory}/metadata.json'
-        with open(file_path, 'w') as f:
-            json.dump(metadata[key], f, indent=2)
+        if cfg[key]['download'] != 'photos':
+            with open(file_path, 'w') as f:
+                json.dump(metadata[key], f, indent=2)
+
+def download_photos(metadata, cfg):
+    for key in metadata:
+        if cfg[key]['download'] == 'metadata':
+            continue
+
+        city=key.replace(" ", "_")
+        directory=f'/data/{city}'
+        if not os.path.exists(directory):
+            os.mkdir(directory)
+
+        photo_list = metadata[key]['photo']
+        dl_limit = cfg[key]['download_limit']
+        for idx in range(0, len(photo_list)):
+            if idx >= dl_limit:
+                break
+
+            url = photo_list[idx][URL_FIELD]
+            file_name = url.split('/')[-1]
+            file_path=f'{directory}/{file_name}'
+            with open(file_path, 'wb') as download_file:
+                with httpx.stream("GET", url) as response:
+
+                    with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                        num_bytes_downloaded = response.num_bytes_downloaded
+                        for chunk in response.iter_bytes():
+                            download_file.write(chunk)
+                            progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                            num_bytes_downloaded = response.num_bytes_downloaded
+
 
 def main(config_file):
     config = parse_config(config_file)
     metadata = get_metadata(config)
-    write_metadata(metadata)
+    write_metadata(metadata, config)
+    download_photos(metadata, config)
 
 if __name__ == '__main__':  # pragma: no cover
-    main('../config.yaml')
+    main('./config.yaml')
