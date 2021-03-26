@@ -3,6 +3,7 @@ import os
 import httpx
 
 from flickrapi import FlickrAPI
+from flickrapi.exceptions import FlickrError
 from pprint import pprint
 from tqdm import tqdm
 
@@ -42,11 +43,15 @@ def get_metadata(cfg):
             has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
             total_pages = city_pics['photos']['pages']
             metadata[key]=city_pics['photos']
-
             for p in tqdm(range(2, total_pages), desc=key):
-                city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
-                has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
-                metadata[key]['photo'].append(city_pics['photos']['photo'])
+                try:
+                    city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
+                    has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
+                    for ph in city_pics['photos']['photo']:
+                        metadata[key]['photo'].append(ph)
+
+                except FlickrError as err:
+                    print(f'{err}')
 
 
     return metadata
@@ -79,18 +84,19 @@ def download_photos(metadata, cfg):
             if idx >= dl_limit:
                 break
 
-            url = photo_list[idx][URL_FIELD]
-            file_name = url.split('/')[-1]
-            file_path=f'{directory}/{file_name}'
-            with open(file_path, 'wb') as download_file:
-                with httpx.stream("GET", url) as response:
+            if URL_FIELD in photo_list[idx]:
+                url = photo_list[idx][URL_FIELD]
+                file_name = url.split('/')[-1]
+                file_path=f'{directory}/{file_name}'
+                with open(file_path, 'wb') as download_file:
+                    with httpx.stream("GET", url) as response:
 
-                    with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
-                        num_bytes_downloaded = response.num_bytes_downloaded
-                        for chunk in response.iter_bytes():
-                            download_file.write(chunk)
-                            progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                        with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
                             num_bytes_downloaded = response.num_bytes_downloaded
+                            for chunk in response.iter_bytes():
+                                download_file.write(chunk)
+                                progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                                num_bytes_downloaded = response.num_bytes_downloaded
 
 
 def main(config_file):

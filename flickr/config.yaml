@@ -2,10 +2,10 @@ cities:
  - city:
     name: "las vegas"
     bounding_boxes: ["-115.3075176, 36.1212777, -115.1526078, 36.2639592"]
-    download: "both"
-    download_limit: 1
+    download: "both"  #photos/metadata/both
+    download_limit: 301
  - city:
     name: "moscow"
     bounding_boxes: ["37.6171903, 55.6093871, 37.7819806, 55.7951024"]
     download: "both"
-    download_limit: 1
+    download_limit: 301
