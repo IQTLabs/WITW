@@ -54,41 +54,46 @@ def json_to_dataframe(path, aoi):
     return df
 
 
-def clip(df, edge=250., max_out=5,
+def clip(dframe, edge=250., max_out=None,
          sat_dir='/local_data/geoloc/sat/utm',
          out_dir='/local_data/geoloc/sat/tiles'):
 
-    # Assumes same AOI for entire DataFrame
-    aoi = df.loc[0, 'aoi']
+    # Loop through all AOIs in the dataframe
+    for aoi in dframe['aoi'].unique():
+        df = dframe[dframe['aoi']==aoi]
+        aoi = int(aoi)
 
-    # Set up coordinate conversion
-    photo_crs = osr.SpatialReference()
-    photo_crs.ImportFromEPSG(4326)
-    sat_crs = osr.SpatialReference()
-    sat_crs.ImportFromEPSG(epsgs[aoi-1])
-    ct = osr.CoordinateTransformation(photo_crs, sat_crs)
+        # Set up coordinate conversion
+        photo_crs = osr.SpatialReference()
+        photo_crs.ImportFromEPSG(4326)
+        sat_crs = osr.SpatialReference()
+        sat_crs.ImportFromEPSG(epsgs[aoi-1])
+        ct = osr.CoordinateTransformation(photo_crs, sat_crs)
 
-    # Specify satellite image
-    sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
-    sat_file = gdal.Open(sat_path)
+        # Specify satellite image
+        sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
+        sat_file = gdal.Open(sat_path)
 
-    num_tiles = min(len(df), max_out)
-    for i in tqdm.tqdm(range(num_tiles)):
+        if max_out is not None:
+            num_tiles = min(len(df), max_out)
+        else:
+            num_tiles = len(df)
+        for i in tqdm.tqdm(range(num_tiles)):
 
-        # Get UTM coordinates
-        lon, lat = (float(df.loc[i, 'lon']), float(df.loc[i, 'lat']))
-        easting, northing = ct.TransformPoint(lat, lon)[:2]
+            # Get UTM coordinates
+            lon, lat = (float(df.loc[i, 'lon']), float(df.loc[i, 'lat']))
+            easting, northing = ct.TransformPoint(lat, lon)[:2]
 
-        # Write a tile of satellite imagery
-        out_path = os.path.join(out_dir, names[aoi-1],
-                                df.loc[i, 'id'] + '.tif')
-        window = [easting - edge/2., northing + edge/2.,
-                  easting + edge/2., northing - edge/2.]
-        gdal.Translate(out_path, sat_file, projWin=window)
+            # Write a tile of satellite imagery
+            out_path = os.path.join(out_dir, names[aoi-1],
+                                    df.loc[i, 'id'] + '.tif')
+            window = [easting - edge/2., northing + edge/2.,
+                      easting + edge/2., northing - edge/2.]
+            gdal.Translate(out_path, sat_file, projWin=window)
 
-    sat_file = None
+        sat_file = None
 
 
 if __name__ == '__main__':
     df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
-    clip(df)
+    clip(df, max_out=10)
