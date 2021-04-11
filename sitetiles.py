@@ -2,6 +2,7 @@
 
 import os
 import json
+import tqdm
 import pandas as pd
 from osgeo import osr
 from osgeo import gdal
@@ -38,7 +39,7 @@ epsgs = [
 ]
 
 
-def json_to_dataframe(path):
+def json_to_dataframe(path, aoi):
     metadata = json.load(open(path))
     # photos = None
     # for page in metadata:
@@ -49,14 +50,16 @@ def json_to_dataframe(path):
     df = pd.DataFrame(metadata['photo'])
     df = df[columns.values()]
     df.rename(columns=columns_reverse, inplace=True)
+    df['aoi'] = aoi
     return df
 
 
-def clip(df, aoi=1, max_out=10,
+def clip(df, edge=250., max_out=5,
          sat_dir='/local_data/geoloc/sat/utm',
          out_dir='/local_data/geoloc/sat/tiles'):
-    print(df)
-    print(df.iloc[0])
+
+    # Assumes same AOI for entire DataFrame
+    aoi = df.loc[0, 'aoi']
 
     # Set up coordinate conversion
     photo_crs = osr.SpatialReference()
@@ -69,21 +72,23 @@ def clip(df, aoi=1, max_out=10,
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
     sat_file = gdal.Open(sat_path)
 
-    for i in range(len(df)):
-        if max_out is not None and i >= max_out:
-            break
+    num_tiles = min(len(df), max_out)
+    for i in tqdm.tqdm(range(num_tiles)):
 
         # Get UTM coordinates
         lon, lat = (float(df.loc[i, 'lon']), float(df.loc[i, 'lat']))
         easting, northing = ct.TransformPoint(lat, lon)[:2]
 
+        # Write a tile of satellite imagery
         out_path = os.path.join(out_dir, names[aoi-1],
                                 df.loc[i, 'id'] + '.tif')
-        #gdal.Translate(out_path, sat_file)
+        window = [easting - edge/2., northing + edge/2.,
+                  easting + edge/2., northing - edge/2.]
+        gdal.Translate(out_path, sat_file, projWin=window)
 
     sat_file = None
 
 
 if __name__ == '__main__':
-    df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json')
-    clip(df, aoi=2)
+    df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
+    clip(df)
