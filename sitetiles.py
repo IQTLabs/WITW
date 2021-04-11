@@ -7,9 +7,6 @@ import pandas as pd
 from osgeo import osr
 from osgeo import gdal
 
-columns = {'id':'id', 'author':'owner', 'license_code_ground':'license', 'lat':'latitude', 'lon':'longitude', 'url':'url_m', 'height':'height_m', 'width':'width_m'}
-columns_reverse = {value:key for key, value in columns.items()}
-
 names = [
     '01_rio',
     '02_vegas',
@@ -38,6 +35,9 @@ epsgs = [
     32631,
 ]
 
+columns = {'id':'id', 'author':'owner', 'license_code_ground':'license', 'lat':'latitude', 'lon':'longitude', 'url':'url_m', 'height':'height_m', 'width':'width_m'}
+columns_reverse = {value:key for key, value in columns.items()}
+
 
 def json_to_dataframe(path, aoi):
     metadata = json.load(open(path))
@@ -51,6 +51,11 @@ def json_to_dataframe(path, aoi):
     df = df[columns.values()]
     df.rename(columns=columns_reverse, inplace=True)
     df['aoi'] = aoi
+    return df
+
+
+def csv_to_dataframe(path):
+    df = pd.read_csv(path, sep=',', header=0)
     return df
 
 
@@ -96,4 +101,5 @@ def clip(dframe, edge=250., max_out=None,
 
 if __name__ == '__main__':
     df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
+    #df = csv_to_dataframe('landmark_locations.csv')
     clip(df, max_out=10)
