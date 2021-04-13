@@ -66,7 +66,9 @@ def clip(dframe, edge=250., max_out=None,
     # Loop through all AOIs in the dataframe
     for aoi in dframe['aoi'].unique():
         df = dframe[dframe['aoi']==aoi]
+        df.reset_index(inplace=True)
         aoi = int(aoi)
+        print('AOI', aoi)
 
         # Set up coordinate conversion
         photo_crs = osr.SpatialReference()
@@ -100,6 +102,6 @@ def clip(dframe, edge=250., max_out=None,
 
 
 if __name__ == '__main__':
-    df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
-    #df = csv_to_dataframe('landmark_locations.csv')
+    #df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
+    df = csv_to_dataframe('landmark_locations.csv')
     clip(df, max_out=10)
