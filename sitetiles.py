@@ -93,7 +93,7 @@ def clip(dframe, edge=225., max_out=None,
 
             # Write a tile of satellite imagery
             out_path = os.path.join(out_dir, names[aoi-1],
-                                    df.loc[i, 'id'] + '.tif')
+                                    df.loc[i, 'id'] + '.jpg')
             window = [easting - edge/2., northing + edge/2.,
                       easting + edge/2., northing - edge/2.]
             gdal.Translate(out_path, sat_file, projWin=window)
