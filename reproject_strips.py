@@ -36,7 +36,7 @@ epsgs = [
 ]
 
 
-for aoi in range(1,11):
+for aoi in range(1, 1+11):
     name = names[aoi-1]
     epsg = epsgs[aoi-1]
     print('AOI:', aoi)
