@@ -59,7 +59,7 @@ def csv_to_dataframe(path):
     return df
 
 
-def clip(dframe, edge=250., max_out=None,
+def clip(dframe, edge=225., max_out=None,
          sat_dir='/local_data/geoloc/sat/utm',
          out_dir='/local_data/geoloc/sat/tiles'):
 
