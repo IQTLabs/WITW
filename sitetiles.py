@@ -102,6 +102,10 @@ def clip(dframe, edge=225., max_out=None,
 
 
 if __name__ == '__main__':
-    #df = json_to_dataframe('../api/flickr_data/02_vegas/metadata.json', aoi=2)
-    df = csv_to_dataframe('landmark_locations.csv')
-    clip(df, max_out=10)
+    for aoi in range(1,11):
+        path = os.path.join('../api/flickr_data',names[aoi-1],'metadata.json')
+        df = json_to_dataframe(path, aoi=aoi)
+        print(aoi, len(df))
+        #clip(df, max_out=5)
+    #df = csv_to_dataframe('landmark_locations.csv')
+    #clip(df)
