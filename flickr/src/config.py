@@ -5,7 +5,6 @@ def parse_config(cfg_file='./config.yaml'):
         parsed = yaml.safe_load(cf)
         effective_cfg={}
         for city in parsed["cities"]:
-            print(f'{city}')
             city_cfg={}
             city_cfg["bounding_boxes"] = city["bounding_boxes"]
             city_cfg["download"] = city["download"]

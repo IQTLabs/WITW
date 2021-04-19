@@ -38,7 +38,6 @@ def get_metadata(cfg):
     metadata = {}
     inserted_ids=[]
     for key in cfg:
-        print(f'Retrieving metadata for {key}.')
         for idx, bbox in enumerate(cfg[key]['bounding_boxes']):
             city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
             has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
