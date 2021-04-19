@@ -1,4 +1,4 @@
 flickrapi==2.4.0
 pyyaml==5.4.1
 httpx==0.17.1
-tqdm==4.59.0
+tqdm==4.60.0
