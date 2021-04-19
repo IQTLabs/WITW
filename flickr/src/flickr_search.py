@@ -36,8 +36,8 @@ def get_metadata(cfg):
     extras+='url_m,url_n,url_z,url_c,url_l,url_o'
 
     metadata = {}
+    inserted_ids=[]
     for key in cfg:
-        print(f'Retrieving metadata for {key}.')
         for idx, bbox in enumerate(cfg[key]['bounding_boxes']):
             city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
             has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
@@ -48,7 +48,9 @@ def get_metadata(cfg):
                     city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
                     has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
                     for ph in city_pics['photos']['photo']:
-                        metadata[key]['photo'].append(ph)
+                        if not ph['id'] in inserted_ids:
+                            metadata[key]['photo'].append(ph)
+                            inserted_ids.append(ph['id'])
 
                 except FlickrError as err:
                     print(f'{err}')
