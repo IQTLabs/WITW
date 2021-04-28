@@ -102,15 +102,15 @@ def clip(dframe, edge=225., max_out=None,
 
 
 if __name__ == '__main__':
-    dfs = []
-    for aoi in range(1,1+11):
-        path = os.path.join('../api/flickr_data',names[aoi-1],'metadata.json')
-        df = json_to_dataframe(path, aoi=aoi)
-        print(aoi, len(df))
-        dfs.append(df)
-        #clip(df, max_out=5)
-    df = pd.concat(dfs)
-    print('all', len(df))
-    df.to_csv('../api/candidate_photos.csv', index=False)
-    #df = csv_to_dataframe('landmark_locations.csv')
-    #clip(df)
+    # dfs = []
+    # for aoi in range(1,1+11):
+    #     path = os.path.join('../api/flickr_data',names[aoi-1],'metadata.json')
+    #     df = json_to_dataframe(path, aoi=aoi)
+    #     print(aoi, len(df))
+    #     dfs.append(df)
+    #     #clip(df, max_out=5)
+    # df = pd.concat(dfs)
+    # print('all', len(df))
+    # df.to_csv('../api/candidate_photos.csv', index=False)
+    df = csv_to_dataframe('landmark_locations.csv')
+    clip(df)
