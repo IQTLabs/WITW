@@ -6,6 +6,23 @@ import math
 
 from cvig import *
 
+
+class ResizeCVUSA(object):
+    """
+    Resize the CVUSA images to fit model.
+    """
+    def __init__(self, fov):
+        self.fov = fov
+        self.surface_height = 128
+        self.surface_width = int(self.fov / 360 * 512)
+        self.overhead_height = 256
+        self.overhead_width = 256
+
+    def __call__(self, data):
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (self.surface_height, self.surface_width))
+        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (self.overhead_height, self.overhead_width))
+        return data
+
 class PolarTransform(object):
     """
     Applies polar transform from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
@@ -139,13 +156,14 @@ def triplet_loss(distances, alpha=10.):
 
     return soft_margin_triplet_loss
 
-def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=4, num_workers=8, num_epochs=999999):
+def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, num_workers=8, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
         #Reorient(), #QuantizedSyncedRotation(),
         #OrientationMaps(),
         #SurfaceVertStretch()
+        ResizeCVUSA(360),
         PolarTransform()
     ])
 
@@ -231,16 +249,19 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=4, n
             torch.save(surface_encoder.state_dict(), './fov_surface_best.pth')
             torch.save(overhead_encoder.state_dict(), './fov_overhead_best.pth')
 
-def test(csv_path = './data/val-19zl.csv', batch_size=4, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
+        ResizeCVUSA(360),
         PolarTransform()
     ])
 
+
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
-    test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(4000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(500)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
 
     # Load the neural network
     # Neural networks
@@ -274,15 +295,39 @@ def test(csv_path = './data/val-19zl.csv', batch_size=4, num_workers=8):
             else:
                 surface_embed = torch.cat((surface_embed, surface_embed_part), dim=0)
                 overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
-            print(surface_embed.shape)
-            print(overhead_embed.shape)
 
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
     for idx in range(count):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
-        distances = torch.pow(torch.sum(torch.pow(overhead_embed - this_surface_embed, 2), dim=1), 0.5)
+        overhead_cropped_all = None
+
+        ###
+        orientation_estimate = correlation(overhead_embed, this_surface_embed)
+        overhead_cropped_all = crop_overhead(overhead_embed, orientation_estimate, this_surface_embed.shape[3])
+        overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
+        ###
+        print('[{}/{}]'.format(idx, count))
+        '''
+        for idx2 in range(count):
+            print('[{}/{}][{}/{}]'.format(idx, count, idx2, count))
+            this_overhead_embed = torch.unsqueeze(overhead_embed[idx2, :], 0)
+            #this_overhead_embed = overhead_embed[idx2, :]
+
+            orientation_estimate = correlation(this_overhead_embed, this_surface_embed)
+            overhead_cropped = crop_overhead(this_overhead_embed, orientation_estimate, this_surface_embed.shape[3])
+            overhead_cropped = overhead_cropped.squeeze(0)
+            if overhead_cropped_all is None:
+                overhead_cropped_all = overhead_cropped
+            else:
+                overhead_cropped_all = torch.cat((overhead_cropped_all, overhead_cropped), dim=0)
+
+        #overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
+        ####
+        '''
+        this_surface_embed = this_surface_embed.reshape(this_surface_embed.shape[0], -1)
+        distances = torch.pow(torch.sum(torch.pow(overhead_cropped_all - this_surface_embed, 2), dim=1), 0.5)
         distance = distances[idx]
         ranks[idx] = torch.sum(torch.le(distances, distance)).item()
     top_one = np.sum(ranks <= 1) / count * 100

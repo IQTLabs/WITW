@@ -91,7 +91,7 @@ class OrientationMaps(object):
     See Liu & Li CVPR 2019.
     """
     orientation_dicts = [{}, {}]
-    
+
     def __call__(self, data):
         for view, od in zip(['surface', 'overhead'], self.orientation_dicts):
             x = data[view]
@@ -103,7 +103,7 @@ class OrientationMaps(object):
 
 class SyncedRotation(object):
     """
-    Shift a 360-degree surface panorama and rotate 
+    Shift a 360-degree surface panorama and rotate
     the overhead image by the same random angle.
     """
     def __call__(self, data):
@@ -230,7 +230,8 @@ class ImagePairDataset(torch.utils.data.Dataset):
         self.transform = transform
 
         # Read file paths and convert any relative file paths to absolute
-        file_paths = pd.read_csv(self.csv_path, names=['surface', 'overhead'])
+        #file_paths = pd.read_csv(self.csv_path, names=['surface', 'overhead'])
+        file_paths = pd.read_csv(self.csv_path, names=['overhead', 'surface', 'annotation'])
         self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
 
     def __len__(self):
@@ -350,7 +351,7 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
         OrientationMaps(),
         SurfaceVertStretch()
     ])
-    
+
     # Source the training and validation data
     trainval_set = ImagePairDataset(csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
@@ -428,7 +429,7 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16)
         OrientationMaps(),
         SurfaceVertStretch()
     ])
-    
+
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
