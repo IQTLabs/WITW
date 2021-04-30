@@ -11,6 +11,12 @@ from config import parse_config
 
 URL_FIELD='url_m'
 PAGE_SIZE=100
+DENSITY_LIMIT=4000
+
+PRIVACY_FILTER = 1 #only public metadata
+CONTENT_TYPE = 1 #only metadata
+HAS_GEO = True  #only geotagged metadata
+GEO_CTX = 0     #0=all, 1=indoor, 2=outdoor
 
 def get_secret(secret_name):
     try:
@@ -19,14 +25,50 @@ def get_secret(secret_name):
     except IOError:
         return None
 
+def get_usable_bounding_boxes(nominal_boxes):
+    FLICKR_PUBLIC = get_secret('flickr_api_key')
+    FLICKR_SECRET = get_secret('flickr_api_secret')
+    flickr = FlickrAPI(FLICKR_PUBLIC, FLICKR_SECRET, format='parsed-json')
+    boxes = []
+    working = nominal_boxes.copy()
+
+    license = "1,2,3,4,5,6,7,8,9,10"
+    extras ='description,license,date_upload,date_taken,original_format,'
+    extras+='last_update,geo,tags, machine_tags, o_dims, media,'
+    extras+='url_m,url_n,url_z,url_c,url_l,url_o'
+
+    city_total=0
+
+    while len(working) > 0:
+        print(f'items left: {len(working)}')
+        box = working.pop()
+        temp = list(map(str, box))
+        str_box = ",".join(temp)
+        box_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=str_box, content_type=CONTENT_TYPE,
+        has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
+        total_imgs = int(box_pics['photos']['total'], base=10)
+        print(f'image count: {total_imgs}')
+        if total_imgs >= DENSITY_LIMIT:
+            diff = (box[2] - box[0])/2
+            print(f'difference: {diff}')
+            new_box_1 = box.copy()
+            new_box_1[2] = box[0] + diff
+            working.append(new_box_1)
+            new_box_2 = box.copy()
+            new_box_2[0] = box[0] + diff
+            working.append(new_box_2)
+            print(f'{working}')
+        elif total_imgs == 0:
+            continue
+        else:
+            city_total += total_imgs
+            boxes.append(box)
+
+    return city_total, boxes
+
 def get_metadata(cfg):
     FLICKR_PUBLIC = get_secret('flickr_api_key')
     FLICKR_SECRET = get_secret('flickr_api_secret')
-
-    PRIVACY_FILTER = 1 #only public metadata
-    CONTENT_TYPE = 1 #only metadata
-    HAS_GEO = True  #only geotagged metadata
-    GEO_CTX = 2     #flickr api values looking for outdoor images only
 
     flickr = FlickrAPI(FLICKR_PUBLIC, FLICKR_SECRET, format='parsed-json')
 
@@ -37,11 +79,19 @@ def get_metadata(cfg):
 
     metadata = {}
     inserted_ids=[]
+
     for key in cfg:
-        for idx, bbox in enumerate(cfg[key]['bounding_boxes']):
-            city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
+        total, boxes = get_usable_bounding_boxes(list(cfg[key]['bounding_boxes']))
+        print(f'{boxes}')
+
+        for bbox in boxes:
+            temp = list(map(str, bbox))
+            bbox_str = ",".join(temp)
+
+            city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox_str, content_type=CONTENT_TYPE,
             has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
             total_pages = city_pics['photos']['pages']
+            total_imgs = city_pics['photos']['total']
             metadata[key]=city_pics['photos']
             for p in tqdm(range(2, total_pages), desc=key):
                 try:
