@@ -37,7 +37,7 @@ def get_usable_bounding_boxes(nominal_boxes):
     extras+='last_update,geo,tags, machine_tags, o_dims, media,'
     extras+='url_m,url_n,url_z,url_c,url_l,url_o'
 
-    city_total=0
+    # city_total=0
 
     while len(working) > 0:
         print(f'items left: {len(working)}')
@@ -61,10 +61,10 @@ def get_usable_bounding_boxes(nominal_boxes):
         elif total_imgs == 0:
             continue
         else:
-            city_total += total_imgs
+            # city_total += total_imgs
             boxes.append(box)
 
-    return city_total, boxes
+    return boxes
 
 def get_metadata(cfg):
     FLICKR_PUBLIC = get_secret('flickr_api_key')
@@ -81,8 +81,11 @@ def get_metadata(cfg):
     inserted_ids=[]
 
     for key in cfg:
-        total, boxes = get_usable_bounding_boxes(list(cfg[key]['bounding_boxes']))
-        print(f'{boxes}')
+        boxes = get_usable_bounding_boxes(list(cfg[key]['bounding_boxes']))
+        metadata[key]={}
+        # metadata[key]['image_count'] = total
+        metadata[key]['images'] = []
+        total = 0
 
         for bbox in boxes:
             temp = list(map(str, bbox))
@@ -91,21 +94,24 @@ def get_metadata(cfg):
             city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox_str, content_type=CONTENT_TYPE,
             has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE)
             total_pages = city_pics['photos']['pages']
-            total_imgs = city_pics['photos']['total']
-            metadata[key]=city_pics['photos']
-            for p in tqdm(range(2, total_pages), desc=key):
+            total += int(city_pics['photos']['total'], base=10)
+
+            for p in tqdm(range(1, total_pages), desc=key):
                 try:
                     city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
                     has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
                     for ph in city_pics['photos']['photo']:
-                        if not ph['id'] in inserted_ids:
-                            metadata[key]['photo'].append(ph)
-                            inserted_ids.append(ph['id'])
+                        metadata[key]['images'].append(ph)
+                        # if not ph['id'] in inserted_ids:
+                        #     metadata[key]['images'].append(ph)
+                        #     inserted_ids.append(ph['id'])
 
                 except FlickrError as err:
                     print(f'{err}')
 
-
+        metadata[key]['image_count'] = total
+        # print(f"length of inserted ids for {key}: {len(inserted_ids)}")
+        # print(f"total for {key}: {len(metadata[key]['images'])}")
     return metadata
 
 def write_metadata(metadata, cfg):
