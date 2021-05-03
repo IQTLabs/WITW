@@ -94,7 +94,7 @@ def get_metadata(cfg):
 
             for p in tqdm(range(1, total_pages), desc=key):
                 try:
-                    city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox, content_type=CONTENT_TYPE,
+                    city_pics = flickr.photos.search(privacy_filter=PRIVACY_FILTER, bbox=bbox_str, content_type=CONTENT_TYPE,
                     has_geo=HAS_GEO, geo_context=GEO_CTX, license=license, extras=extras, per_page=PAGE_SIZE, page=p)
                     for ph in city_pics['photos']['photo']:
                         metadata[key]['images'].append(ph)
