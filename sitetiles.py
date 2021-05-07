@@ -41,13 +41,7 @@ columns_reverse = {value:key for key, value in columns.items()}
 
 def json_to_dataframe(path, aoi):
     metadata = json.load(open(path))
-    # photos = None
-    # for page in metadata:
-    #     if photos is None:
-    #         photos = page['photo']
-    #     else:
-    #         photos.extend(page['photo'])
-    df = pd.DataFrame(metadata['photo'])
+    df = pd.DataFrame(metadata['images'])
     df = df[columns.values()]
     df.rename(columns=columns_reverse, inplace=True)
     df['aoi'] = aoi
@@ -105,15 +99,17 @@ if __name__ == '__main__':
     if True: #JSON DATA
         dfs = []
         for aoi in range(1,1+11):
-            path = os.path.join('../api/flickr_data',names[aoi-1],
-                                'metadata.json')
+            path = os.path.join('../api/data', names[aoi-1], 'metadata.json')
             df = json_to_dataframe(path, aoi=aoi)
             print(aoi, len(df))
+            df.drop_duplicates(inplace=True, ignore_index=True)
+            print(aoi, len(df))
             dfs.append(df)
-            #clip(df, max_out=5)
         df = pd.concat(dfs)
         print('all', len(df))
+        
         df.to_csv('../api/candidate_photos.csv', index=False)
+        #clip(df)
 
     if False: #CSV DATA
         df = csv_to_dataframe('landmark_locations.csv')
