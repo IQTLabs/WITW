@@ -35,6 +35,31 @@ epsgs = [
     32631,
 ]
 
+licenses = [
+    ["All Rights Reserved",
+     ""],
+    ["Attribution-NonCommercial-ShareAlike License",
+     "https://creativecommons.org/licenses/by-nc-sa/2.0/"],
+    ["Attribution-NonCommercial License",
+     "https://creativecommons.org/licenses/by-nc/2.0/"],
+    ["Attribution-NonCommercial-NoDerivs License",
+     "https://creativecommons.org/licenses/by-nc-nd/2.0/"],
+    ["Attribution License",
+     "https://creativecommons.org/licenses/by/2.0/"],
+    ["Attribution-ShareAlike License",
+     "https://creativecommons.org/licenses/by-sa/2.0/"],
+    ["Attribution-NoDerivs License",
+     "https://creativecommons.org/licenses/by-nd/2.0/"],
+    ["No known copyright restrictions",
+     "https://www.flickr.com/commons/usage/"],
+    ["United States Government Work",
+     "http://www.usa.gov/copyright.shtml"],
+    ["Public Domain Dedication (CC0)",
+     "https://creativecommons.org/publicdomain/zero/1.0/"],
+    ["Public Domain Mark",
+     "https://creativecommons.org/publicdomain/mark/1.0/"]
+]
+
 columns = {'id':'id', 'author':'owner', 'license_code_ground':'license', 'lat':'latitude', 'lon':'longitude', 'url':'url_m', 'height':'height_m', 'width':'width_m'}
 columns_reverse = {value:key for key, value in columns.items()}
 
@@ -103,6 +128,8 @@ if __name__ == '__main__':
             df = json_to_dataframe(path, aoi=aoi)
             print(aoi, len(df))
             df.drop_duplicates(inplace=True, ignore_index=True)
+            print(aoi, len(df))
+            
             print(aoi, len(df))
             dfs.append(df)
         df = pd.concat(dfs)
