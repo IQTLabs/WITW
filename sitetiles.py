@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 
 import os
+import csv
 import json
 import tqdm
 import numpy as np
 import pandas as pd
 from osgeo import osr
 from osgeo import gdal
-
-import math
 
 names = [
     '01_rio',
@@ -99,8 +98,8 @@ def csv_to_dataframe(path):
 
 def annotate_dataframe(df):
     # Adds additional information to json_to_dataframe() output
-    #df['surface_height'] = df['surface_height'].astype(int)
-    #df['surface_width'] = df['surface_width'].astype(int)
+    df['surface_height'] = df['surface_height'].astype(int)
+    df['surface_width'] = df['surface_width'].astype(int)
     df['aoi_name'] = df['aoi'].replace(range(1,1+len(names)), fullnames)
     df['surface_license'] = df['surface_license_code'].astype(int).replace(
         range(len(licenses)), [x[0] for x in licenses])
@@ -159,29 +158,24 @@ def clip(dframe, edge=225., max_out=None,
 
 
 if __name__ == '__main__':
-    if True: #JSON DATA
+    if True: # JSON DATA
         dfs = []
         for aoi in range(1,1+11):
             path = os.path.join('../api/data', names[aoi-1], 'metadata.json')
             df = json_to_dataframe(path, aoi=aoi)
-            print(aoi, len(df))
-            df.drop_duplicates(inplace=True, ignore_index=True)
-            print(aoi, len(df))
+            # Remove redundant entries and those without URL
             df.drop(df[df['surface_url'].isnull()].index, inplace=True)
-            #df.drop(df[df['surface_url'] != ''].index, inplace=True)
-            #df.drop(df[df['surface_height']!=math.inf].index, inplace=True)
-            #df.drop(df[df['surface_height']<=9999].index, inplace=True)
-            #print(df['surface_height'].isnull())
-            print(aoi, len(df))
+            df.drop_duplicates(inplace=True, ignore_index=True)
+            # Add additional information columns
             annotate_dataframe(df)
-            print(aoi, len(df))
             dfs.append(df)
+            print(aoi, len(df))
         df = pd.concat(dfs)
         print('all', len(df))
         
-        df.to_csv('../api/candidate_photos.csv', index=False)
+        df.to_csv('../api/candidate_photos.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
         #clip(df)
 
-    if False: #CSV DATA
+    if False: # CSV DATA
         df = csv_to_dataframe('landmark_locations.csv')
         clip(df)
