@@ -92,18 +92,19 @@ def json_to_dataframe(path, aoi):
 
 def csv_to_dataframe(path):
     # Load dataframe from CSV file
-    df = pd.read_csv(path, sep=',', header=0)
+    df = pd.read_csv(path, sep=',', header=0, dtype={'id':str})
     return df
 
 
 def annotate_dataframe(df):
     # Adds additional information to json_to_dataframe() output
+    df['surface_license_code'] = df['surface_license_code'].astype(int)
     df['surface_height'] = df['surface_height'].astype(int)
     df['surface_width'] = df['surface_width'].astype(int)
     df['aoi_name'] = df['aoi'].replace(range(1,1+len(names)), fullnames)
-    df['surface_license'] = df['surface_license_code'].astype(int).replace(
+    df['surface_license'] = df['surface_license_code'].replace(
         range(len(licenses)), [x[0] for x in licenses])
-    df['surface_license_url'] = df['surface_license_code'].astype(int).replace(
+    df['surface_license_url'] = df['surface_license_code'].replace(
         range(len(licenses)), [x[1] for x in licenses])
     df['overhead_license'] = 'Attribution-ShareAlike License'
     df['overhead_license_url'] = 'https://creativecommons.org/licenses/by-sa/4.0/'
@@ -113,6 +114,16 @@ def annotate_dataframe(df):
     df['overhead_satellite'] = np.select(satellite_conditions,
                                          satellite_names,
                                          default='NotSpecified')
+
+
+def download(df, out_dir='/local_data/geoloc/sat/photos'):
+    for idx, row in df.iterrows():
+        url = row['surface_url']
+        dest = os.path.join(out_dir, row['id'] + '.jpg')
+        cmd = 'wget ' + url + ' ' + dest
+        print(cmd)
+        os.system(cmd)
+
 
 
 def clip(dframe, edge=225., max_out=None,
@@ -158,10 +169,13 @@ def clip(dframe, edge=225., max_out=None,
 
 
 if __name__ == '__main__':
-    if True: # JSON DATA
+    json_dir = '../api/data'
+    csv_path = '../api/candidate_photos.csv'
+
+    if True: # JSON METADATA -> CSV FILE
         dfs = []
         for aoi in range(1,1+11):
-            path = os.path.join('../api/data', names[aoi-1], 'metadata.json')
+            path = os.path.join(json_dir, names[aoi-1], 'metadata.json')
             df = json_to_dataframe(path, aoi=aoi)
             # Remove redundant entries and those without URL
             df.drop(df[df['surface_url'].isnull()].index, inplace=True)
@@ -172,10 +186,15 @@ if __name__ == '__main__':
             print(aoi, len(df))
         df = pd.concat(dfs)
         print('all', len(df))
-        
-        df.to_csv('../api/candidate_photos.csv', index=False, quoting=csv.QUOTE_NONNUMERIC)
-        #clip(df)
 
-    if False: # CSV DATA
-        df = csv_to_dataframe('landmark_locations.csv')
-        clip(df)
+        # Optional shuffle
+        df = df.sample(frac=1).reset_index(drop=True)
+        # Optional cutoff
+        df = df.head(500)
+
+        df.to_csv(csv_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+
+    if True: # CSV FILE -> DATASET
+        df = csv_to_dataframe(csv_path)
+        # download(df)
+        # clip(df)
