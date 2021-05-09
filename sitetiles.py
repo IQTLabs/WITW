@@ -131,7 +131,7 @@ def clip(dframe, edge=225., max_out=None,
          out_dir='/local_data/geoloc/sat/tiles'):
 
     # Loop through all AOIs in the dataframe
-    for aoi in dframe['aoi'].unique():
+    for aoi in np.sort(dframe['aoi'].unique()):
         df = dframe[dframe['aoi']==aoi]
         df.reset_index(inplace=True)
         aoi = int(aoi)
@@ -159,8 +159,7 @@ def clip(dframe, edge=225., max_out=None,
             easting, northing = ct.TransformPoint(lat, lon)[:2]
 
             # Write a tile of satellite imagery
-            out_path = os.path.join(out_dir, names[aoi-1],
-                                    df.loc[i, 'id'] + '.jpg')
+            out_path = os.path.join(out_dir, df.loc[i, 'id'] + '.jpg')
             window = [easting - edge/2., northing + edge/2.,
                       easting + edge/2., northing - edge/2.]
             gdal.Translate(out_path, sat_file, projWin=window)
