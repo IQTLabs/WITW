@@ -117,13 +117,13 @@ def annotate_dataframe(df):
 
 
 def download(df, out_dir='/local_data/geoloc/sat/photos'):
+    # Download Flickr photos
     for idx, row in df.iterrows():
         url = row['surface_url']
         dest = os.path.join(out_dir, row['id'] + '.jpg')
         cmd = 'wget ' + url + ' ' + dest
         print(cmd)
         os.system(cmd)
-
 
 
 def clip(dframe, edge=225., max_out=None,
