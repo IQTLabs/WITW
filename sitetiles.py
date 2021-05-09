@@ -3,9 +3,12 @@
 import os
 import json
 import tqdm
+import numpy as np
 import pandas as pd
 from osgeo import osr
 from osgeo import gdal
+
+import math
 
 names = [
     '01_rio',
@@ -19,6 +22,20 @@ names = [
     '09_san',
     '10_dar',
     '11_rotterdam',
+]
+
+fullnames = [
+    'Rio de Janeiro',
+    'Las Vegas',
+    'Paris',
+    'Shanghai',
+    'Khartoum',
+    'Atlanta',
+    'Moscow',
+    'Mumbai',
+    'San Juan',
+    'Dar es Salaam',
+    'Rotterdam'
 ]
 
 epsgs = [
@@ -36,35 +53,36 @@ epsgs = [
 ]
 
 licenses = [
-    ["All Rights Reserved",
-     ""],
-    ["Attribution-NonCommercial-ShareAlike License",
-     "https://creativecommons.org/licenses/by-nc-sa/2.0/"],
-    ["Attribution-NonCommercial License",
-     "https://creativecommons.org/licenses/by-nc/2.0/"],
-    ["Attribution-NonCommercial-NoDerivs License",
-     "https://creativecommons.org/licenses/by-nc-nd/2.0/"],
-    ["Attribution License",
-     "https://creativecommons.org/licenses/by/2.0/"],
-    ["Attribution-ShareAlike License",
-     "https://creativecommons.org/licenses/by-sa/2.0/"],
-    ["Attribution-NoDerivs License",
-     "https://creativecommons.org/licenses/by-nd/2.0/"],
-    ["No known copyright restrictions",
-     "https://www.flickr.com/commons/usage/"],
-    ["United States Government Work",
-     "http://www.usa.gov/copyright.shtml"],
-    ["Public Domain Dedication (CC0)",
-     "https://creativecommons.org/publicdomain/zero/1.0/"],
-    ["Public Domain Mark",
-     "https://creativecommons.org/publicdomain/mark/1.0/"]
+    ['All Rights Reserved',
+     ''],
+    ['Attribution-NonCommercial-ShareAlike License',
+     'https://creativecommons.org/licenses/by-nc-sa/2.0/'],
+    ['Attribution-NonCommercial License',
+     'https://creativecommons.org/licenses/by-nc/2.0/'],
+    ['Attribution-NonCommercial-NoDerivs License',
+     'https://creativecommons.org/licenses/by-nc-nd/2.0/'],
+    ['Attribution License',
+     'https://creativecommons.org/licenses/by/2.0/'],
+    ['Attribution-ShareAlike License',
+     'https://creativecommons.org/licenses/by-sa/2.0/'],
+    ['Attribution-NoDerivs License',
+     'https://creativecommons.org/licenses/by-nd/2.0/'],
+    ['No known copyright restrictions',
+     'https://www.flickr.com/commons/usage/'],
+    ['United States Government Work',
+     'http://www.usa.gov/copyright.shtml'],
+    ['Public Domain Dedication (CC0)',
+     'https://creativecommons.org/publicdomain/zero/1.0/'],
+    ['Public Domain Mark',
+     'https://creativecommons.org/publicdomain/mark/1.0/']
 ]
 
-columns = {'id':'id', 'author':'owner', 'license_code_ground':'license', 'lat':'latitude', 'lon':'longitude', 'url':'url_m', 'height':'height_m', 'width':'width_m'}
+columns = {'id':'id', 'author':'owner', 'surface_license_code':'license', 'lat':'latitude', 'lon':'longitude', 'surface_url':'url_m', 'surface_height':'height_m', 'surface_width':'width_m'}
 columns_reverse = {value:key for key, value in columns.items()}
 
 
 def json_to_dataframe(path, aoi):
+    # Load dataframe from API metadata JSON file
     metadata = json.load(open(path))
     df = pd.DataFrame(metadata['images'])
     df = df[columns.values()]
@@ -74,8 +92,28 @@ def json_to_dataframe(path, aoi):
 
 
 def csv_to_dataframe(path):
+    # Load dataframe from CSV file
     df = pd.read_csv(path, sep=',', header=0)
     return df
+
+
+def annotate_dataframe(df):
+    # Adds additional information to json_to_dataframe() output
+    #df['surface_height'] = df['surface_height'].astype(int)
+    #df['surface_width'] = df['surface_width'].astype(int)
+    df['aoi_name'] = df['aoi'].replace(range(1,1+len(names)), fullnames)
+    df['surface_license'] = df['surface_license_code'].astype(int).replace(
+        range(len(licenses)), [x[0] for x in licenses])
+    df['surface_license_url'] = df['surface_license_code'].astype(int).replace(
+        range(len(licenses)), [x[1] for x in licenses])
+    df['overhead_license'] = 'Attribution-ShareAlike License'
+    df['overhead_license_url'] = 'https://creativecommons.org/licenses/by-sa/4.0/'
+    satellite_conditions = [df['aoi'].isin([1, 6, 11]),
+                            df['aoi'].isin([2, 3, 4, 5, 7, 8, 9, 10])]
+    satellite_names = ['WorldView-2', 'WorldView-3']
+    df['overhead_satellite'] = np.select(satellite_conditions,
+                                         satellite_names,
+                                         default='NotSpecified')
 
 
 def clip(dframe, edge=225., max_out=None,
@@ -129,7 +167,13 @@ if __name__ == '__main__':
             print(aoi, len(df))
             df.drop_duplicates(inplace=True, ignore_index=True)
             print(aoi, len(df))
-            
+            df.drop(df[df['surface_url'].isnull()].index, inplace=True)
+            #df.drop(df[df['surface_url'] != ''].index, inplace=True)
+            #df.drop(df[df['surface_height']!=math.inf].index, inplace=True)
+            #df.drop(df[df['surface_height']<=9999].index, inplace=True)
+            #print(df['surface_height'].isnull())
+            print(aoi, len(df))
+            annotate_dataframe(df)
             print(aoi, len(df))
             dfs.append(df)
         df = pd.concat(dfs)
