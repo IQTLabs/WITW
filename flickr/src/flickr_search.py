@@ -11,19 +11,10 @@ from tqdm import tqdm
 
 from config import parse_config
 
-URL_FIELD='url_m'
-PAGE_SIZE=100
-DENSITY_LIMIT=4000
-
 PRIVACY_FILTER = 1 #only public metadata
 CONTENT_TYPE = 1 #only metadata
 HAS_GEO = True  #only geotagged metadata
 GEO_CTX = 0     #0=all, 1=indoor, 2=outdoor
-
-MIN_AREA = 1. #m^2; bounding boxes smaller than this are never divided
-MAX_AREA = 2.E6 #m^2; bounding boxes larger than this are always divided
-
-TIME_DELAY = 2.
 
 def get_secret(secret_name):
     try:
@@ -38,7 +29,7 @@ def est_area(bbox, radius=6.371E6):
         * math.cos((bbox[1]+bbox[3])/2 * math.pi / 180.) \
         * (math.pi / 180.) **2 * radius**2
 
-def get_usable_bounding_boxes(nominal_boxes):
+def get_usable_bounding_boxes(nominal_boxes, cfg):
     FLICKR_PUBLIC = get_secret('flickr_api_key')
     FLICKR_SECRET = get_secret('flickr_api_secret')
     flickr = FlickrAPI(FLICKR_PUBLIC, FLICKR_SECRET, format='parsed-json')
@@ -52,27 +43,27 @@ def get_usable_bounding_boxes(nominal_boxes):
 
     city_total=0
 
-    print('  area_km2 count type   bounding_box')
+    # print('  area_km2 count type   bounding_box')
     while len(working) > 0:
         box = working.pop()
         temp = list(map(str, box))
         str_box = ",".join(temp)
         box_area = est_area(box)
         divide_flag = False
-        if box_area > MAX_AREA:
+        if box_area > cfg["max_area"]:
             total_imgs = -1
             divide_flag = True
         else:
-            time.sleep(TIME_DELAY)
+            time.sleep(cfg["time_delay"])
             box_pics = flickr.photos.search(
                 privacy_filter=PRIVACY_FILTER, bbox=str_box,
                 content_type=CONTENT_TYPE,
                 has_geo=HAS_GEO, geo_context=GEO_CTX,
-                license=license, extras=extras, per_page=PAGE_SIZE)
-            total_imgs = int(box_pics['photos']['total'], base=10)
-            divide_flag = (total_imgs >= DENSITY_LIMIT and box_area > MIN_AREA)
-        print('%10.4f %5i %s %s' % (box_area/1.E6, total_imgs, 'branch'
-                                    if divide_flag else 'leaf  ', box))
+                license=license, extras=extras, per_page=cfg["page_size"])
+            total_imgs = int(box_pics['photos']['total'])
+            divide_flag = (total_imgs >= cfg["density_limit"] and box_area > cfg["min_area"])
+        # print('%10.4f %5i %s %s' % (box_area/1.E6, total_imgs, 'branch'
+        #                             if divide_flag else 'leaf  ', box))
         if divide_flag:
             new_box_1 = box.copy()
             new_box_2 = box.copy()
@@ -96,6 +87,19 @@ def get_usable_bounding_boxes(nominal_boxes):
     return boxes
 
 def get_metadata(cfg):
+    metadata = None
+
+    if cfg['refresh_metadata']:
+        print('fettching metadata')
+        metadata = fetch_metadata(cfg)
+        print('writing metadata')
+        write_metadata(metadata, cfg)
+    else:
+        metadata = read_metadata(cfg)
+
+    return metadata
+
+def fetch_metadata(cfg):
     FLICKR_PUBLIC = get_secret('flickr_api_key')
     FLICKR_SECRET = get_secret('flickr_api_secret')
 
@@ -108,9 +112,10 @@ def get_metadata(cfg):
 
     metadata = {}
     inserted_ids=[]
+    print(f'{cfg}')
 
-    for key in cfg:
-        boxes = get_usable_bounding_boxes(list(cfg[key]['bounding_boxes']))
+    for key in cfg['cities']:
+        boxes = get_usable_bounding_boxes(list(cfg['cities'][key]['bounding_boxes']), cfg)
         metadata[key]={}
         # metadata[key]['image_count'] = total
         metadata[key]['images'] = []
@@ -120,23 +125,23 @@ def get_metadata(cfg):
             temp = list(map(str, bbox))
             bbox_str = ",".join(temp)
 
-            time.sleep(TIME_DELAY)
+            time.sleep(cfg["time_delay"])
             city_pics = flickr.photos.search(
                 privacy_filter=PRIVACY_FILTER, bbox=bbox_str,
                 content_type=CONTENT_TYPE,
                 has_geo=HAS_GEO, geo_context=GEO_CTX,
-                license=license, extras=extras, per_page=PAGE_SIZE)
+                license=license, extras=extras, per_page=cfg["page_size"])
             total_pages = city_pics['photos']['pages']
-            total += int(city_pics['photos']['total'], base=10)
+            total += int(city_pics['photos']['total'])
 
             for p in range(1, total_pages):
                 try:
-                    time.sleep(TIME_DELAY)
+                    time.sleep(cfg["time_delay"])
                     city_pics = flickr.photos.search(
                         privacy_filter=PRIVACY_FILTER, bbox=bbox_str,
                         content_type=CONTENT_TYPE,
                         has_geo=HAS_GEO, geo_context=GEO_CTX,
-                        license=license, extras=extras, per_page=PAGE_SIZE,
+                        license=license, extras=extras, per_page=cfg["page_size"],
                         page=p)
                     for ph in city_pics['photos']['photo']:
                         metadata[key]['images'].append(ph)
@@ -161,13 +166,25 @@ def write_metadata(metadata, cfg):
             os.mkdir(directory)
 
         file_path=f'{directory}/metadata.json'
-        if cfg[key]['download'] != 'photos':
+        if cfg['cities'][key]['download'] != 'photos':
             with open(file_path, 'w') as f:
                 json.dump(metadata[key], f, indent=2)
 
+def read_metadata(cfg):
+    metadata = {}
+    for key in cfg['cities']:
+        city=key.replace(" ", "_")
+        file_path=f'/data/{city}/metadata.json'
+        with open(file_path, 'r') as f:
+            loaded = json.load(f)
+            metadata[city]= loaded
+
+    return metadata
+
+
 def download_photos(metadata, cfg):
     for key in metadata:
-        if cfg[key]['download'] == 'metadata':
+        if cfg['cities'][key]['download'] == 'metadata':
             continue
 
         city=key.replace(" ", "_")
@@ -175,14 +192,14 @@ def download_photos(metadata, cfg):
         if not os.path.exists(directory):
             os.mkdir(directory)
 
-        photo_list = metadata[key]['photo']
-        dl_limit = cfg[key]['download_limit']
+        photo_list = metadata[key]['images']
+        dl_limit = cfg['cities'][key]['download_limit']
         for idx in range(0, len(photo_list)):
-            if idx >= dl_limit:
+            if dl_limit != -1 and idx >= dl_limit:
                 break
 
-            if URL_FIELD in photo_list[idx]:
-                url = photo_list[idx][URL_FIELD]
+            if cfg["url_field"] in photo_list[idx]:
+                url = photo_list[idx][cfg["url_field"]]
                 file_name = url.split('/')[-1]
                 file_path=f'{directory}/{file_name}'
                 with open(file_path, 'wb') as download_file:
@@ -199,7 +216,7 @@ def download_photos(metadata, cfg):
 def main(config_file):
     config = parse_config(config_file)
     metadata = get_metadata(config)
-    write_metadata(metadata, config)
+    
     download_photos(metadata, config)
 
 if __name__ == '__main__':  # pragma: no cover
