@@ -1,46 +1,53 @@
+url_field: "url_m"
+page_size: 100
+density_limit: 4000
+min_area: 1 #m^2; bounding boxes smaller than this are never divided
+max_area: 2000000 #m^2; bounding boxes larger than this are always divided
+time_delay: 2
+refresh_metadata: false
 cities:
   - name: "01_rio"
     bounding_boxes: [[-43.8574219,-23.1152344,-43.1542969,-22.7636719]]
-    download: "metadata"
+    download: "photos"
     download_limit: -1
-  - name: "02_vegas"
-    bounding_boxes: [[-115.3075176,36.1212777,-115.1526078,36.2639592]]
-    download: "metadata"
-    download_limit: -1
-  - name: "03_paris"
-    bounding_boxes: [[2.1109464,48.4492509,2.3131089,49.0767795]]
-    download: "metadata"
-    download_limit: -1
-  - name: "04_shanghai"
-    bounding_boxes: [[121.5901692,30.8275659,121.7484324,31.4273115]]
-    download: "metadata"
-    download_limit: -1
-  - name: "05_khartoum"
-    bounding_boxes: [[32.4191484,15.4365912,32.5687824,15.8719878]]
-    download: "metadata"
-    download_limit: -1
-  - name: "06_atlanta"
-    bounding_boxes: [[-84.4972444444445,33.5884472222222,-84.3023833333333,33.8360277777778]]
-    download: "metadata"
-    download_limit: -1
-  - name: "07_moscow"
-    bounding_boxes: [[37.616508,55.2994884,37.8664794,56.1044097]]
-    download: "metadata"
-    download_limit: -1
-  - name: "08_mumbai"
-    bounding_boxes: [[72.7673544,18.8756568,72.8947026,19.5682986]]
-    download: "metadata"
-    download_limit: -1
-  - name: "09_san"
-    bounding_boxes: [[-66.0202785,18.3164733,-65.8945476,18.510336]]
-    download: "metadata"
-    download_limit: -1
-  - name: "10_dar"
-    bounding_boxes: [[39.200166,-6.8752314,39.3379686,-6.7444974]]
-    download: "metadata"
-    download_limit: -1
-  - name: "11_rotterdam"
-    bounding_boxes: [[4.29701944444444,51.8252194444445,4.53869722222222,51.9456583333333]]
-    download: "metadata"
-    download_limit: -1
+  # - name: "02_vegas"
+  #   bounding_boxes: [[-115.3075176,36.1212777,-115.1526078,36.2639592]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "03_paris"
+  #   bounding_boxes: [[2.1109464,48.4492509,2.3131089,49.0767795]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "04_shanghai"
+  #   bounding_boxes: [[121.5901692,30.8275659,121.7484324,31.4273115]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "05_khartoum"
+  #   bounding_boxes: [[32.4191484,15.4365912,32.5687824,15.8719878]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "06_atlanta"
+  #   bounding_boxes: [[-84.4972444444445,33.5884472222222,-84.3023833333333,33.8360277777778]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "07_moscow"
+  #   bounding_boxes: [[37.616508,55.2994884,37.8664794,56.1044097]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "08_mumbai"
+  #   bounding_boxes: [[72.7673544,18.8756568,72.8947026,19.5682986]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "09_san"
+  #   bounding_boxes: [[-66.0202785,18.3164733,-65.8945476,18.510336]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "10_dar"
+  #   bounding_boxes: [[39.200166,-6.8752314,39.3379686,-6.7444974]]
+  #   download: "metadata"
+  #   download_limit: -1
+  # - name: "11_rotterdam"
+  #   bounding_boxes: [[4.29701944444444,51.8252194444445,4.53869722222222,51.9456583333333]]
+  #   download: "metadata"
+  #   download_limit: -1
   
