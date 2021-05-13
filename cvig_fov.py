@@ -15,11 +15,15 @@ class ResizeCVUSA(object):
         self.fov = fov
         self.surface_height = 128
         self.surface_width = int(self.fov / 360 * 512)
+        self.surface_resize_width = 512
         self.overhead_height = 256
         self.overhead_width = 256
 
     def __call__(self, data):
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (self.surface_height, self.surface_width))
+        start = np.random.randint(0, self.surface_resize_width-self.surface_width+1)
+        end = start + self.surface_width
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (self.surface_height, self.surface_resize_width))[:,:,start:end]
+
         data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (self.overhead_height, self.overhead_width))
         return data
 
@@ -56,13 +60,13 @@ def prep_model(circ_padding=False):
 
     # shorten model based on Where Am I Looking modifications
     model.features = model.features[:23]
-    
+
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
-    
+
     # only train last 3 conv layers
     for name, param in model.features.named_parameters():
         torch_layer_num = int(name.split('.')[0])
@@ -162,14 +166,14 @@ def triplet_loss(distances, alpha=10.):
 
     return soft_margin_triplet_loss
 
-def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, num_workers=8, num_epochs=999999):
+def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=12, num_workers=8, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
         #Reorient(), #QuantizedSyncedRotation(),
         #OrientationMaps(),
         #SurfaceVertStretch()
-        ResizeCVUSA(360),
+        ResizeCVUSA(fov),
         PolarTransform()
     ])
 
@@ -226,7 +230,7 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, 
                     # Forward and loss (train and val)
                     surface_embed = surface_encoder.features(surface)
                     overhead_embed = overhead_encoder.features(overhead)
-                    
+
                     orientation_estimate = correlation(overhead_embed, surface_embed)
                     overhead_cropped = crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
 
@@ -252,14 +256,14 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, 
         if best_loss is None or running_loss / running_count < best_loss:
             print('-------> new best')
             best_loss = running_loss / running_count
-            torch.save(surface_encoder.state_dict(), './fov_surface_best.pth')
-            torch.save(overhead_encoder.state_dict(), './fov_overhead_best.pth')
+            torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(fov))
+            torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(fov))
 
-def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        ResizeCVUSA(360),
+        ResizeCVUSA(fov),
         PolarTransform()
     ])
 
@@ -278,8 +282,8 @@ def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=8):
     overhead_encoder = model_circ
 
 
-    surface_encoder.load_state_dict(torch.load('./fov_surface_best.pth'))
-    overhead_encoder.load_state_dict(torch.load('./fov_overhead_best.pth'))
+    surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(fov)))
+    overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(fov)))
     surface_encoder.eval()
     overhead_encoder.eval()
 
