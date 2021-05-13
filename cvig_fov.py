@@ -56,7 +56,13 @@ def prep_model(circ_padding=False):
 
     # shorten model based on Where Am I Looking modifications
     model.features = model.features[:23]
-
+    
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
+    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
+    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
+    
     # only train last 3 conv layers
     for name, param in model.features.named_parameters():
         torch_layer_num = int(name.split('.')[0])
@@ -220,7 +226,7 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, 
                     # Forward and loss (train and val)
                     surface_embed = surface_encoder.features(surface)
                     overhead_embed = overhead_encoder.features(overhead)
-
+                    
                     orientation_estimate = correlation(overhead_embed, surface_embed)
                     overhead_cropped = crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
 
