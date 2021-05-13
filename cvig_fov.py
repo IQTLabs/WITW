@@ -270,7 +270,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
 
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
-    test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(500)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
     # Load the neural network
