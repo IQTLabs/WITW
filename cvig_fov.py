@@ -56,13 +56,13 @@ def prep_model(circ_padding=False):
 
     # shorten model based on Where Am I Looking modifications
     model.features = model.features[:23]
-    
+
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
-    
+
     # only train last 3 conv layers
     for name, param in model.features.named_parameters():
         torch_layer_num = int(name.split('.')[0])
@@ -162,7 +162,7 @@ def triplet_loss(distances, alpha=10.):
 
     return soft_margin_triplet_loss
 
-def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, num_workers=8, num_epochs=999999):
+def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=48, num_workers=12, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
@@ -226,7 +226,7 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, 
                     # Forward and loss (train and val)
                     surface_embed = surface_encoder.features(surface)
                     overhead_embed = overhead_encoder.features(overhead)
-                    
+
                     orientation_estimate = correlation(overhead_embed, surface_embed)
                     overhead_cropped = crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
 
@@ -255,7 +255,7 @@ def train(csv_path = './data/train-19zl.csv', val_quantity=1000, batch_size=12, 
             torch.save(surface_encoder.state_dict(), './fov_surface_best.pth')
             torch.save(overhead_encoder.state_dict(), './fov_overhead_best.pth')
 
-def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -266,7 +266,8 @@ def test(csv_path = './data/val-19zl.csv', batch_size=12, num_workers=8):
 
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
-    test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(500)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
 
     # Load the neural network
