@@ -166,7 +166,7 @@ def triplet_loss(distances, alpha=10.):
 
     return soft_margin_triplet_loss
 
-def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=12, num_workers=8, num_epochs=999999):
+def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
@@ -256,8 +256,8 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
         if best_loss is None or running_loss / running_count < best_loss:
             print('-------> new best')
             best_loss = running_loss / running_count
-            torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(fov))
-            torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(fov))
+            torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
+            torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8):
 
@@ -283,8 +283,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     overhead_encoder = model_circ
 
 
-    surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(fov)))
-    overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(fov)))
+    surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
+    overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
     overhead_encoder.eval()
 
@@ -361,7 +361,10 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 if __name__ == '__main__':
+    fov = 360
+    if len(sys.argv) == 3:
+        fov = float(sys.argv[2])
     if len(sys.argv) < 2 or sys.argv[1]=='train':
-        train()
+        train(fov=fov)
     elif sys.argv[1]=='test':
-        test()
+        test(fov=fov)
