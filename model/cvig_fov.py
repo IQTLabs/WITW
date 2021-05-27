@@ -6,25 +6,30 @@ import math
 
 from cvig import *
 
+class Globals:
+    surface_height_max = 128
+    surface_width_max = 512
+    overhead_height = 256
+    overhead_width = 256
 
 class ResizeCVUSA(object):
     """
-    Resize the CVUSA images to fit model.
+    Resize the CVUSA images to fit model and crop to fov.
     """
     def __init__(self, fov):
         self.fov = fov
-        self.surface_height = 128
-        self.surface_width = int(self.fov / 360 * 512)
-        self.surface_resize_width = 512
-        self.overhead_height = 256
-        self.overhead_width = 256
+        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
 
     def __call__(self, data):
-        start = np.random.randint(0, self.surface_resize_width-self.surface_width+1)
+        start = torch.randint(0, Globals.surface_width_max, ())
         end = start + self.surface_width
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (self.surface_height, self.surface_resize_width))[:,:,start:end]
-
-        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (self.overhead_height, self.overhead_width))
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
+        if end < Globals.surface_width_max:
+            data['surface'] = data['surface'][:,:,start:end]
+        else:
+            data['surface'] = torch.cat((data['surface'][:,:,start:], data[
+                'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
+        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_height, Globals.overhead_width))
         return data
 
 class PolarTransform(object):
@@ -248,7 +253,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
                 running_count += count
                 running_loss += loss.item() * count
 
-                print('iter = {}, count = {}, loss = {}, running loss = {}'.format(batch, running_count, loss, running_loss))
+                print('epoch = {}, iter = {}, count = {}, loss = {:.4f}, running loss = {:.4f}'.format(epoch+1, batch, running_count, loss, running_loss))
 
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
 
