@@ -9,19 +9,22 @@ from cvig import *
 class Globals:
     surface_height_max = 128
     surface_width_max = 512
-    overhead_height = 256
-    overhead_width = 256
+    overhead_size = 256
 
 class ResizeCVUSA(object):
     """
     Resize the CVUSA images to fit model and crop to fov.
     """
-    def __init__(self, fov):
+    def __init__(self, fov=360, random_orientation=True):
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
+        self.random_orientation = random_orientation
 
     def __call__(self, data):
-        start = torch.randint(0, Globals.surface_width_max, ())
+        if self.random_orientation:
+            start = torch.randint(0, Globals.surface_width_max, ())
+        else:
+            start = 0
         end = start + self.surface_width
         data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
         if end < Globals.surface_width_max:
@@ -29,7 +32,7 @@ class ResizeCVUSA(object):
         else:
             data['surface'] = torch.cat((data['surface'][:,:,start:], data[
                 'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
-        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_height, Globals.overhead_width))
+        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
         return data
 
 class PolarTransform(object):
@@ -39,20 +42,19 @@ class PolarTransform(object):
     """
 
     def __call__(self, data):
-        assert data['overhead'].shape[1] == data['overhead'].shape[2]
-        size_a = data['overhead'].shape[1]
-        height_g = data['surface'].shape[1]
-        width_g = data['surface'].shape[2]
+        h_s = Globals.surface_height_max
+        w_s = Globals.surface_width_max
+        s_o = Globals.overhead_size
 
-        transf_aerial = torch.zeros(data['surface'].shape)
+        transf_overhead = torch.zeros((data['surface'].size(0), h_s, w_s))
 
-        for x in range(width_g):
-            for y in range(height_g):
-                y_a = (size_a/2) + ((size_a/2) * (height_g -1 - y)/height_g * math.cos(2 * math.pi * x / width_g) )
-                x_a = (size_a/2) - ((size_a/2) * (height_g -1 - y)/height_g * math.sin(2 * math.pi * x / width_g) )
-                transf_aerial[:,y,x] = data['overhead'][:,int(y_a),int(x_a)]
+        for x in range(w_s):
+            for y in range(h_s):
+                y_o = (s_o/2) + (s_o/2) * (h_s - 1 - y)/h_s * math.cos(2 * math.pi * x / w_s)
+                x_o = (s_o/2) - (s_o/2) * (h_s - 1 - y)/h_s * math.sin(2 * math.pi * x / w_s)
+                transf_overhead[:,y,x] = data['overhead'][:,int(y_o),int(x_o)]
 
-        data['polar'] = transf_aerial
+        data['polar'] = transf_overhead
         return data
 
 def prep_model(circ_padding=False):
