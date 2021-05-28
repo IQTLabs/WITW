@@ -46,17 +46,7 @@ class PolarTransform(object):
         w_s = Globals.surface_width_max
         s_o = Globals.overhead_size
 
-        """
         transf_overhead = torch.zeros((data['surface'].size(0), h_s, w_s))
-
-        for x in range(w_s):
-            for y in range(h_s):
-                y_o = (s_o/2) + (s_o/2) * (h_s - 1 - y)/h_s * math.cos(2 * math.pi * x / w_s)
-                x_o = (s_o/2) - (s_o/2) * (h_s - 1 - y)/h_s * math.sin(2 * math.pi * x / w_s)
-                transf_overhead[:,y,x] = data['overhead'][:,int(y_o),int(x_o)]
-        """
-
-        transf_overhead_fast = torch.zeros((data['surface'].size(0), h_s, w_s))
         xx, yy = np.meshgrid(range(w_s), range(h_s))
         yy_o = (s_o/2) + (s_o/2) * (h_s - 1 - yy)/h_s * np.cos(
             2 * math.pi * xx / w_s)
@@ -64,13 +54,9 @@ class PolarTransform(object):
             2 * math.pi * xx / w_s)
         yy_o = np.floor(yy_o)
         xx_o = np.floor(xx_o)
-        transf_overhead_fast[:, yy.flatten(), xx.flatten()] = data['overhead'][:, yy_o.flatten(), xx_o.flatten()]
+        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][:, yy_o.flatten(), xx_o.flatten()]
 
-        #print()
-        #print(transf_overhead[0,:3,:3])
-        #print(transf_overhead_fast[0,:3,:3])
-
-        data['polar'] = transf_overhead_fast
+        data['polar'] = transf_overhead
         return data
 
 def prep_model(circ_padding=False):
