@@ -21,12 +21,12 @@ class ResizeCVUSA(object):
         self.random_orientation = random_orientation
 
     def __call__(self, data):
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
         if self.random_orientation:
             start = torch.randint(0, Globals.surface_width_max, ())
         else:
             start = 0
         end = start + self.surface_width
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
         if end < Globals.surface_width_max:
             data['surface'] = data['surface'][:,:,start:end]
         else:
@@ -46,7 +46,7 @@ class PolarTransform(object):
         w_s = Globals.surface_width_max
         s_o = Globals.overhead_size
 
-        transf_overhead = torch.zeros((data['surface'].size(0), h_s, w_s))
+        transf_overhead = torch.zeros((data['overhead'].size(0), h_s, w_s))
         xx, yy = np.meshgrid(range(w_s), range(h_s))
         yy_o = (s_o/2) + (s_o/2) * (h_s - 1 - yy)/h_s * np.cos(
             2 * math.pi * xx / w_s)
@@ -54,7 +54,8 @@ class PolarTransform(object):
             2 * math.pi * xx / w_s)
         yy_o = np.floor(yy_o)
         xx_o = np.floor(xx_o)
-        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][:, yy_o.flatten(), xx_o.flatten()]
+        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][
+            :, yy_o.flatten(), xx_o.flatten()]
 
         data['polar'] = transf_overhead
         return data
@@ -101,11 +102,11 @@ def correlation(overhead_embed, surface_embed):
 
     # append beginning of overhead embedding to the end to get a full correlation
     n = s_w - 1
-    x = torch.cat((overhead_embed, overhead_embed[:,:, :, :n]), axis=3)
+    x = torch.cat((overhead_embed, overhead_embed[:, :, :, :n]), axis=3)
     f = surface_embed
 
     # calculate correlation using convolution
-    out = torch.nn.functional.conv2d(x, f,  stride=1)
+    out = torch.nn.functional.conv2d(x, f, stride=1)
     h, w = out.shape[-2:]
     assert h==1, w==o_w
 
