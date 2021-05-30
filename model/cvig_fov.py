@@ -3,6 +3,7 @@ import torchvision
 from torch.nn.modules.utils import  _reverse_repeat_tuple
 import matplotlib.pyplot as plt
 import math
+import tqdm
 
 from cvig import *
 
@@ -324,8 +325,7 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     # Loop through batches of data
     surface_embed = None
     overhead_embed = None
-    for batch, data in enumerate(test_loader):
-        print('[{}/{}]'.format(batch, len(test_loader)))
+    for batch, data in enumerate(tqdm.tqdm(test_loader)):
         surface = data['surface'].to(device)
         overhead = data['polar'].to(device)
 
@@ -343,7 +343,7 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
-    for idx in range(count):
+    for idx in tqdm.tqdm(range(count)):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
         overhead_cropped_all = None
 
@@ -352,7 +352,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
         overhead_cropped_all = crop_overhead(overhead_embed, orientation_estimate, this_surface_embed.shape[3])
         overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
         ###
-        print('[{}/{}]'.format(idx, count))
         '''
         for idx2 in range(count):
             print('[{}/{}][{}/{}]'.format(idx, count, idx2, count))
