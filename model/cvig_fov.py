@@ -6,10 +6,12 @@ import math
 
 from cvig import *
 
+
 class Globals:
     surface_height_max = 128
     surface_width_max = 512
     overhead_size = 256
+
 
 class ResizeCVUSA(object):
     """
@@ -35,6 +37,7 @@ class ResizeCVUSA(object):
         data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
         return data
 
+
 class ImageNormalization(object):
     """
     Normalize image values to use with pretrained VGG model
@@ -50,6 +53,7 @@ class ImageNormalization(object):
         for key in self.keys:
             data[key] = self.norm(data[key] / 255.)
         return data
+
 
 class PolarTransform(object):
     """
@@ -74,6 +78,7 @@ class PolarTransform(object):
 
         data['polar'] = transf_overhead
         return data
+
 
 def prep_model(circ_padding=False):
     """
@@ -108,6 +113,7 @@ def prep_model(circ_padding=False):
                 layer._reversed_padding_repeated_twice = _reverse_repeat_tuple(layer.padding, 2)
 
     return model
+
 
 def correlation(overhead_embed, surface_embed):
 
@@ -156,6 +162,7 @@ def crop_overhead(overhead_embed, orientation, surface_width):
 
     return overhead_cropped
 
+
 def l2_distance(overhead_cropped, surface_embed):
 
     # l2 normalize overhead embedding
@@ -190,6 +197,7 @@ def triplet_loss(distances, alpha=10.):
     soft_margin_triplet_loss = (loss_surface2overhead + loss_overhead2surface) / (2. * batch_size * (batch_size - 1))
 
     return soft_margin_triplet_loss
+
 
 def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
 
@@ -285,6 +293,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
+
 def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8):
 
     # Specify transformation, if any
@@ -299,7 +308,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-
     # Load the neural network
     # Neural networks
     model = prep_model().to(device)
@@ -307,7 +315,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
 
     surface_encoder = model
     overhead_encoder = model_circ
-
 
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
