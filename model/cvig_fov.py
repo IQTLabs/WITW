@@ -35,12 +35,27 @@ class ResizeCVUSA(object):
         data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
         return data
 
+class ImageNormalization(object):
+    """
+    Normalize image values to use with pretrained VGG model
+    """
+    def __init__(self):
+        self.keys = ['surface', 'overhead']
+        self.norm = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+
+    def __call__(self, data):
+        for key in self.keys:
+            data[key] = self.norm(data[key] / 255.)
+        return data
+
 class PolarTransform(object):
     """
     Applies polar transform from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
     """
-
     def __call__(self, data):
         h_s = Globals.surface_height_max
         w_s = Globals.surface_width_max
@@ -184,6 +199,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
         #OrientationMaps(),
         #SurfaceVertStretch()
         ResizeCVUSA(fov),
+        ImageNormalization(),
         PolarTransform()
     ])
 
@@ -274,9 +290,9 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
         ResizeCVUSA(fov),
+        ImageNormalization(),
         PolarTransform()
     ])
-
 
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
