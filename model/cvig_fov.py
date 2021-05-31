@@ -234,7 +234,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     # Optimizer
     all_params = list(surface_encoder.parameters()) \
                  + list(overhead_encoder.parameters())
-    optimizer = torch.optim.Adam(all_params)
+    optimizer = torch.optim.Adam(all_params, lr=1.E-5)
 
     # Loop through epochs
     best_loss = None
