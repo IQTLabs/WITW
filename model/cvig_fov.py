@@ -3,52 +3,83 @@ import torchvision
 from torch.nn.modules.utils import  _reverse_repeat_tuple
 import matplotlib.pyplot as plt
 import math
+import tqdm
 
 from cvig import *
 
 
+class Globals:
+    surface_height_max = 128
+    surface_width_max = 512
+    overhead_size = 256
+
+
 class ResizeCVUSA(object):
     """
-    Resize the CVUSA images to fit model.
+    Resize the CVUSA images to fit model and crop to fov.
     """
-    def __init__(self, fov):
+    def __init__(self, fov=360, random_orientation=True):
         self.fov = fov
-        self.surface_height = 128
-        self.surface_width = int(self.fov / 360 * 512)
-        self.surface_resize_width = 512
-        self.overhead_height = 256
-        self.overhead_width = 256
+        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
+        self.random_orientation = random_orientation
 
     def __call__(self, data):
-        start = np.random.randint(0, self.surface_resize_width-self.surface_width+1)
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
+        if self.random_orientation:
+            start = torch.randint(0, Globals.surface_width_max, ())
+        else:
+            start = 0
         end = start + self.surface_width
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (self.surface_height, self.surface_resize_width))[:,:,start:end]
-
-        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (self.overhead_height, self.overhead_width))
+        if end < Globals.surface_width_max:
+            data['surface'] = data['surface'][:,:,start:end]
+        else:
+            data['surface'] = torch.cat((data['surface'][:,:,start:], data[
+                'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
+        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
         return data
+
+
+class ImageNormalization(object):
+    """
+    Normalize image values to use with pretrained VGG model
+    """
+    def __init__(self):
+        self.keys = ['surface', 'overhead']
+        self.norm = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+
+    def __call__(self, data):
+        for key in self.keys:
+            data[key] = self.norm(data[key] / 255.)
+        return data
+
 
 class PolarTransform(object):
     """
     Applies polar transform from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
     """
-
     def __call__(self, data):
-        assert data['overhead'].shape[1] == data['overhead'].shape[2]
-        size_a = data['overhead'].shape[1]
-        height_g = data['surface'].shape[1]
-        width_g = data['surface'].shape[2]
+        h_s = Globals.surface_height_max
+        w_s = Globals.surface_width_max
+        s_o = Globals.overhead_size
 
-        transf_aerial = torch.zeros(data['surface'].shape)
+        transf_overhead = torch.zeros((data['overhead'].size(0), h_s, w_s))
+        xx, yy = np.meshgrid(range(w_s), range(h_s))
+        yy_o = (s_o/2) + (s_o/2) * (h_s - 1 - yy)/h_s * np.cos(
+            2 * math.pi * xx / w_s)
+        xx_o = (s_o/2) - (s_o/2) * (h_s - 1 - yy)/h_s * np.sin(
+            2 * math.pi * xx / w_s)
+        yy_o = np.floor(yy_o)
+        xx_o = np.floor(xx_o)
+        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][
+            :, yy_o.flatten(), xx_o.flatten()]
 
-        for x in range(width_g):
-            for y in range(height_g):
-                y_a = (size_a/2) + ((size_a/2) * (height_g -1 - y)/height_g * math.cos(2 * math.pi * x / width_g) )
-                x_a = (size_a/2) - ((size_a/2) * (height_g -1 - y)/height_g * math.sin(2 * math.pi * x / width_g) )
-                transf_aerial[:,y,x] = data['overhead'][:,int(y_a),int(x_a)]
-
-        data['polar'] = transf_aerial
+        data['polar'] = transf_overhead
         return data
+
 
 def prep_model(circ_padding=False):
     """
@@ -84,6 +115,7 @@ def prep_model(circ_padding=False):
 
     return model
 
+
 def correlation(overhead_embed, surface_embed):
 
     o_c, o_h, o_w = overhead_embed.shape[1:]
@@ -92,11 +124,11 @@ def correlation(overhead_embed, surface_embed):
 
     # append beginning of overhead embedding to the end to get a full correlation
     n = s_w - 1
-    x = torch.cat((overhead_embed, overhead_embed[:,:, :, :n]), axis=3)
+    x = torch.cat((overhead_embed, overhead_embed[:, :, :, :n]), axis=3)
     f = surface_embed
 
     # calculate correlation using convolution
-    out = torch.nn.functional.conv2d(x, f,  stride=1)
+    out = torch.nn.functional.conv2d(x, f, stride=1)
     h, w = out.shape[-2:]
     assert h==1, w==o_w
 
@@ -130,6 +162,7 @@ def crop_overhead(overhead_embed, orientation, surface_width):
     assert overhead_cropped.shape[4] == surface_width
 
     return overhead_cropped
+
 
 def l2_distance(overhead_cropped, surface_embed):
 
@@ -166,6 +199,7 @@ def triplet_loss(distances, alpha=10.):
 
     return soft_margin_triplet_loss
 
+
 def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
 
     # Data modification and augmentation
@@ -174,6 +208,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
         #OrientationMaps(),
         #SurfaceVertStretch()
         ResizeCVUSA(fov),
+        ImageNormalization(),
         PolarTransform()
     ])
 
@@ -199,7 +234,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     # Optimizer
     all_params = list(surface_encoder.parameters()) \
                  + list(overhead_encoder.parameters())
-    optimizer = torch.optim.Adam(all_params)
+    optimizer = torch.optim.Adam(all_params, lr=1.E-5)
 
     # Loop through epochs
     best_loss = None
@@ -248,7 +283,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
                 running_count += count
                 running_loss += loss.item() * count
 
-                print('iter = {}, count = {}, loss = {}, running loss = {}'.format(batch, running_count, loss, running_loss))
+                print('epoch = {}, iter = {}, count = {}, loss = {:.4f}, running loss = {:.4f}'.format(epoch+1, batch, running_count, loss, running_loss))
 
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
 
@@ -259,20 +294,20 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
+
 def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
         ResizeCVUSA(fov),
+        ImageNormalization(),
         PolarTransform()
     ])
-
 
     # Source the test data
     test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-
 
     # Load the neural network
     # Neural networks
@@ -282,7 +317,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     surface_encoder = model
     overhead_encoder = model_circ
 
-
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
@@ -291,8 +325,7 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     # Loop through batches of data
     surface_embed = None
     overhead_embed = None
-    for batch, data in enumerate(test_loader):
-        print('[{}/{}]'.format(batch, len(test_loader)))
+    for batch, data in enumerate(tqdm.tqdm(test_loader)):
         surface = data['surface'].to(device)
         overhead = data['polar'].to(device)
 
@@ -310,7 +343,7 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
-    for idx in range(count):
+    for idx in tqdm.tqdm(range(count)):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
         overhead_cropped_all = None
 
@@ -319,7 +352,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
         overhead_cropped_all = crop_overhead(overhead_embed, orientation_estimate, this_surface_embed.shape[3])
         overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
         ###
-        print('[{}/{}]'.format(idx, count))
         '''
         for idx2 in range(count):
             print('[{}/{}][{}/{}]'.format(idx, count, idx2, count))
