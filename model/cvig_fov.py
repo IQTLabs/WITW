@@ -134,7 +134,7 @@ def crop_overhead(overhead_embed, orientation, surface_width):
     batch_overhead, batch_surface = orientation.shape
     c, h, w = overhead_embed.shape[1:]
     # duplicate overhead embeddings according to batch size
-    overhead_embed = torch.unsqueeze(overhead_embed, 1) # shape=[batch_overhead, 1, c, h, w]
+    overhead_embed = torch.unsqueeze(overhead_embed, 1) # shape = [batch_overhead, 1, c, h, w]
     overhead_embed = torch.tile(overhead_embed, [1, batch_surface, 1, 1, 1]) # shape = [batch_overhead, batch_surface, c, h, w]
     orientation = torch.unsqueeze(orientation, -1) # shape = [batch_overhead, batch_surface, 1]
 
@@ -280,7 +280,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 
-def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -294,8 +294,7 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    # Load the neural network
-    # Neural networks
+    # Load the neural networks
     surface_encoder = prep_model().to(device)
     overhead_encoder = prep_model().to(device)
 
