@@ -81,7 +81,7 @@ class PolarTransform(object):
         return data
 
 
-def prep_model(circ_padding=False):
+def prep_model():
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
@@ -98,20 +98,11 @@ def prep_model(circ_padding=False):
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
 
-    # only train last 3 conv layers
+    # only train last 6 conv layers
     for name, param in model.features.named_parameters():
         torch_layer_num = int(name.split('.')[0])
         if torch_layer_num < 17:
             param.requires_grad = False
-
-    # circular padding
-    if circ_padding:
-        for layer in model.features:
-            if isinstance(layer, torch.nn.Conv2d):
-                # TODO: circular padding horizontal, but zero padding vertical ?
-                layer.padding = (1,2)
-                layer.padding_mode = 'circular'
-                layer._reversed_padding_repeated_twice = _reverse_repeat_tuple(layer.padding, 2)
 
     return model
 
@@ -204,9 +195,6 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        #Reorient(), #QuantizedSyncedRotation(),
-        #OrientationMaps(),
-        #SurfaceVertStretch()
         ResizeCVUSA(fov),
         ImageNormalization(),
         PolarTransform()
@@ -219,15 +207,12 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
-    model = prep_model().to(device)
-    model_circ = prep_model(circ_padding=True).to(device)
+    surface_encoder = prep_model().to(device)
+    overhead_encoder = prep_model().to(device)
+    # if torch.cuda.device_count() > 1:
+    #     surface_encoder = nn.DataParallel(surface_encoder)
+    #     overhead_encoder = nn.DataParallel(overhead_encoder)
 
-    surface_encoder = model
-    overhead_encoder = model_circ
-
-#     if torch.cuda.device_count() > 1:
-#         surface_encoder = nn.DataParallel(surface_encoder)
-#         overhead_encoder = nn.DataParallel(overhead_encoder)
     # Loss function
     loss_func = triplet_loss
 
@@ -283,7 +268,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
                 running_count += count
                 running_loss += loss.item() * count
 
-                print('epoch = {}, iter = {}, count = {}, loss = {:.4f}, running loss = {:.4f}'.format(epoch+1, batch, running_count, loss, running_loss))
+                print('epoch = {} {}, iter = {}, count = {}, loss = {:.4f}'.format(epoch+1, phase, batch, running_count, loss))
 
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
 
@@ -311,11 +296,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=12, num_workers=8
 
     # Load the neural network
     # Neural networks
-    model = prep_model().to(device)
-    model_circ = prep_model(circ_padding=True).to(device)
-
-    surface_encoder = model
-    overhead_encoder = model_circ
+    surface_encoder = prep_model().to(device)
+    overhead_encoder = prep_model().to(device)
 
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
