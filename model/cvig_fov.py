@@ -326,32 +326,10 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8
     ranks = np.zeros([count], dtype=int)
     for idx in tqdm.tqdm(range(count)):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
-        overhead_cropped_all = None
-
-        ###
         orientation_estimate = correlation(overhead_embed, this_surface_embed)
         overhead_cropped_all = crop_overhead(overhead_embed, orientation_estimate, this_surface_embed.shape[3])
-        overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
-        ###
-        '''
-        for idx2 in range(count):
-            print('[{}/{}][{}/{}]'.format(idx, count, idx2, count))
-            this_overhead_embed = torch.unsqueeze(overhead_embed[idx2, :], 0)
-            #this_overhead_embed = overhead_embed[idx2, :]
-
-            orientation_estimate = correlation(this_overhead_embed, this_surface_embed)
-            overhead_cropped = crop_overhead(this_overhead_embed, orientation_estimate, this_surface_embed.shape[3])
-            overhead_cropped = overhead_cropped.squeeze(0)
-            if overhead_cropped_all is None:
-                overhead_cropped_all = overhead_cropped
-            else:
-                overhead_cropped_all = torch.cat((overhead_cropped_all, overhead_cropped), dim=0)
-
-        #overhead_cropped_all = overhead_cropped_all.reshape(overhead_cropped_all.shape[0], -1)
-        ####
-        '''
-        this_surface_embed = this_surface_embed.reshape(this_surface_embed.shape[0], -1)
-        distances = torch.pow(torch.sum(torch.pow(overhead_cropped_all - this_surface_embed, 2), dim=1), 0.5)
+        distances = l2_distance(overhead_cropped_all, this_surface_embed)
+        distances = torch.squeeze(distances)
         distance = distances[idx]
         ranks[idx] = torch.sum(torch.le(distances, distance)).item()
     top_one = np.sum(ranks <= 1) / count * 100
