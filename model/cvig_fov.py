@@ -1,0 +1,361 @@
+import torch
+import torchvision
+from torch.nn.modules.utils import  _reverse_repeat_tuple
+import matplotlib.pyplot as plt
+import math
+import tqdm
+
+from cvig import *
+
+
+class Globals:
+    surface_height_max = 128
+    surface_width_max = 512
+    overhead_size = 256
+
+
+class ResizeCVUSA(object):
+    """
+    Resize the CVUSA images to fit model and crop to fov.
+    """
+    def __init__(self, fov=360, random_orientation=True):
+        self.fov = fov
+        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
+        self.random_orientation = random_orientation
+
+    def __call__(self, data):
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
+        if self.random_orientation:
+            start = torch.randint(0, Globals.surface_width_max, ())
+        else:
+            start = 0
+        end = start + self.surface_width
+        if end < Globals.surface_width_max:
+            data['surface'] = data['surface'][:,:,start:end]
+        else:
+            data['surface'] = torch.cat((data['surface'][:,:,start:], data[
+                'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
+        data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
+        return data
+
+
+class ImageNormalization(object):
+    """
+    Normalize image values to use with pretrained VGG model
+    """
+    def __init__(self):
+        self.keys = ['surface', 'overhead']
+        self.norm = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+
+    def __call__(self, data):
+        for key in self.keys:
+            data[key] = self.norm(data[key] / 255.)
+        return data
+
+
+class PolarTransform(object):
+    """
+    Applies polar transform from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
+    CVPR 2020.
+    """
+    def __call__(self, data):
+        h_s = Globals.surface_height_max
+        w_s = Globals.surface_width_max
+        s_o = Globals.overhead_size
+
+        transf_overhead = torch.zeros((data['overhead'].size(0), h_s, w_s))
+        xx, yy = np.meshgrid(range(w_s), range(h_s))
+        yy_o = (s_o/2) + (s_o/2) * (h_s - 1 - yy)/h_s * np.cos(
+            2 * math.pi * xx / w_s)
+        xx_o = (s_o/2) - (s_o/2) * (h_s - 1 - yy)/h_s * np.sin(
+            2 * math.pi * xx / w_s)
+        yy_o = np.floor(yy_o)
+        xx_o = np.floor(xx_o)
+        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][
+            :, yy_o.flatten(), xx_o.flatten()]
+
+        data['polar'] = transf_overhead
+        return data
+
+
+def prep_model():
+    """
+    Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
+    CVPR 2020.
+    """
+    model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16', pretrained=True)
+    # model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16_bn', pretrained=True)
+
+    # shorten model based on Where Am I Looking modifications
+    model.features = model.features[:23]
+
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
+    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
+    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
+
+    # only train last 6 conv layers
+    for name, param in model.features.named_parameters():
+        torch_layer_num = int(name.split('.')[0])
+        if torch_layer_num < 17:
+            param.requires_grad = False
+
+    return model
+
+
+def correlation(overhead_embed, surface_embed):
+
+    o_c, o_h, o_w = overhead_embed.shape[1:]
+    s_c, s_h, s_w = surface_embed.shape[1:]
+    assert o_h == s_h, o_c == s_c
+
+    # append beginning of overhead embedding to the end to get a full correlation
+    n = s_w - 1
+    x = torch.cat((overhead_embed, overhead_embed[:, :, :, :n]), axis=3)
+    f = surface_embed
+
+    # calculate correlation using convolution
+    out = torch.nn.functional.conv2d(x, f, stride=1)
+    h, w = out.shape[-2:]
+    assert h==1, w==o_w
+
+    # get index of maximum correlation
+    out = torch.squeeze(out, -2)
+    orientation = torch.argmax(out,-1)  # shape = [batch_overhead, batch_surface]
+
+    return orientation
+
+
+def crop_overhead(overhead_embed, orientation, surface_width):
+    batch_overhead, batch_surface = orientation.shape
+    c, h, w = overhead_embed.shape[1:]
+    # duplicate overhead embeddings according to batch size
+    overhead_embed = torch.unsqueeze(overhead_embed, 1) # shape = [batch_overhead, 1, c, h, w]
+    overhead_embed = torch.tile(overhead_embed, [1, batch_surface, 1, 1, 1]) # shape = [batch_overhead, batch_surface, c, h, w]
+    orientation = torch.unsqueeze(orientation, -1) # shape = [batch_overhead, batch_surface, 1]
+
+    # reindex overhead embeddings
+    i = torch.arange(batch_overhead).to(device)
+    j = torch.arange(batch_surface).to(device)
+    k = torch.arange(w).to(device)
+    x, y, z = torch.meshgrid(i, j, k)
+    z_index = torch.fmod(z + orientation, w)
+    overhead_embed = overhead_embed.permute(0,1,4,2,3)
+    overhead_reindex = overhead_embed[x,y,z_index,:,:]
+    overhead_reindex = overhead_reindex.permute(0,1,3,4,2)
+
+    # crop overhead embeddings
+    overhead_cropped = overhead_reindex[:,:,:,:,:surface_width] # shape = [batch_overhead, batch_surface, c, h, surface_width]
+    assert overhead_cropped.shape[4] == surface_width
+
+    return overhead_cropped
+
+
+def l2_distance(overhead_cropped, surface_embed):
+
+    # l2 normalize overhead embedding
+    batch_overhead, batch_surface, c, h, overhead_width = overhead_cropped.shape
+    overhead_normalized = overhead_cropped.reshape(batch_overhead, batch_surface, -1)
+    overhead_normalized = torch.div(overhead_normalized, torch.linalg.norm(overhead_normalized, ord=2, dim=-1).unsqueeze(-1))
+    overhead_normalized = overhead_normalized.view(batch_overhead, batch_surface, c, h, overhead_width)
+
+    # l2 normalize surface embedding
+    batch_surface, c, h, surface_width = surface_embed.shape
+    surface_normalized = surface_embed.reshape(batch_surface, -1)
+    surface_normalized = torch.div(surface_normalized, torch.linalg.norm(surface_normalized, ord=2, dim=-1).unsqueeze(-1))
+    surface_normalized = surface_normalized.view(batch_surface, c, h, surface_width)
+
+    # calculate L2 distance
+    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_surface, batch_overhead]
+
+    return distance
+
+
+def triplet_loss(distances, alpha=10.):
+
+    batch_size = distances.shape[0]
+
+    matching_dists = torch.diagonal(distances)
+    dist_surface2overhead = matching_dists - distances
+    dist_overhead2surface = matching_dists.unsqueeze(1) - distances
+
+    loss_surface2overhead = torch.sum(torch.log(1. + torch.exp(alpha * dist_surface2overhead)))
+    loss_overhead2surface = torch.sum(torch.log(1. + torch.exp(alpha * dist_overhead2surface)))
+
+    soft_margin_triplet_loss = (loss_surface2overhead + loss_overhead2surface) / (2. * batch_size * (batch_size - 1))
+
+    return soft_margin_triplet_loss
+
+
+def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+
+    # Data modification and augmentation
+    transform = torchvision.transforms.Compose([
+        ResizeCVUSA(fov),
+        ImageNormalization(),
+        PolarTransform()
+    ])
+
+    # Source the training and validation data
+    trainval_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # Neural networks
+    surface_encoder = prep_model().to(device)
+    overhead_encoder = prep_model().to(device)
+    # if torch.cuda.device_count() > 1:
+    #     surface_encoder = nn.DataParallel(surface_encoder)
+    #     overhead_encoder = nn.DataParallel(overhead_encoder)
+
+    # Loss function
+    loss_func = triplet_loss
+
+    # Optimizer
+    all_params = list(surface_encoder.parameters()) \
+                 + list(overhead_encoder.parameters())
+    optimizer = torch.optim.Adam(all_params, lr=1.E-5)
+
+    # Loop through epochs
+    best_loss = None
+    for epoch in range(num_epochs):
+        print('Epoch %d, %s' % (epoch + 1, time.ctime(time.time())))
+
+        for phase in ['train', 'val']:
+            running_count = 0
+            running_loss = 0.
+
+            if phase == 'train':
+                loader = train_loader
+                surface_encoder.train()
+                overhead_encoder.train()
+            elif phase == 'val':
+                loader = val_loader
+                surface_encoder.eval()
+                overhead_encoder.eval()
+
+            #Loop through batches of data
+            for batch, data in enumerate(loader):
+                surface = data['surface'].to(device)
+                #overhead = data['overhead'].to(device)
+                overhead = data['polar'].to(device)
+
+                with torch.set_grad_enabled(phase == 'train'):
+
+                    # Forward and loss (train and val)
+                    surface_embed = surface_encoder.features(surface)
+                    overhead_embed = overhead_encoder.features(overhead)
+
+                    orientation_estimate = correlation(overhead_embed, surface_embed)
+                    overhead_cropped = crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
+
+                    distance = l2_distance(overhead_cropped, surface_embed)
+
+                    loss = loss_func(distance)
+
+                    # Backward and optimization (train only)
+                    if phase == 'train':
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+
+                count = surface_embed.size(0)
+                running_count += count
+                running_loss += loss.item() * count
+
+                print('epoch = {} {}, iter = {}, count = {}, loss = {:.4f}'.format(epoch+1, phase, batch, running_count, loss))
+
+            print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
+
+        # Save weights if this is the lowest observed validation loss
+        if best_loss is None or running_loss / running_count < best_loss:
+            print('-------> new best')
+            best_loss = running_loss / running_count
+            torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
+            torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
+
+
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8):
+
+    # Specify transformation, if any
+    transform = torchvision.transforms.Compose([
+        ResizeCVUSA(fov),
+        ImageNormalization(),
+        PolarTransform()
+    ])
+
+    # Source the test data
+    test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    # Load the neural networks
+    surface_encoder = prep_model().to(device)
+    overhead_encoder = prep_model().to(device)
+
+    surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
+    overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
+    surface_encoder.eval()
+    overhead_encoder.eval()
+
+    # Loop through batches of data
+    surface_embed = None
+    overhead_embed = None
+    for batch, data in enumerate(tqdm.tqdm(test_loader)):
+        surface = data['surface'].to(device)
+        overhead = data['polar'].to(device)
+
+        with torch.set_grad_enabled(False):
+            surface_embed_part = surface_encoder.features(surface)
+            overhead_embed_part = overhead_encoder.features(overhead)
+
+            if surface_embed is None:
+                surface_embed = surface_embed_part
+                overhead_embed = overhead_embed_part
+            else:
+                surface_embed = torch.cat((surface_embed, surface_embed_part), dim=0)
+                overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
+
+    # Measure performance
+    count = surface_embed.size(0)
+    ranks = np.zeros([count], dtype=int)
+    for idx in tqdm.tqdm(range(count)):
+        this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
+        orientation_estimate = correlation(overhead_embed, this_surface_embed)
+        overhead_cropped_all = crop_overhead(overhead_embed, orientation_estimate, this_surface_embed.shape[3])
+        distances = l2_distance(overhead_cropped_all, this_surface_embed)
+        distances = torch.squeeze(distances)
+        distance = distances[idx]
+        ranks[idx] = torch.sum(torch.le(distances, distance)).item()
+    top_one = np.sum(ranks <= 1) / count * 100
+    top_five = np.sum(ranks <= 5) / count * 100
+    top_ten = np.sum(ranks <= 10) / count * 100
+    top_percent = np.sum(ranks * 100 <= count) / count * 100
+    mean = np.mean(ranks)
+    median = np.median(ranks)
+
+    # Print performance
+    print('Top  1: {:.2f}%'.format(top_one))
+    print('Top  5: {:.2f}%'.format(top_five))
+    print('Top 10: {:.2f}%'.format(top_ten))
+    print('Top 1%: {:.2f}%'.format(top_percent))
+    print('Avg. Rank: {:.2f}'.format(mean))
+    print('Med. Rank: {:.2f}'.format(median))
+    print('Locations: {}'.format(count))
+
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+if __name__ == '__main__':
+    fov = 360
+    if len(sys.argv) == 3:
+        fov = float(sys.argv[2])
+    if len(sys.argv) < 2 or sys.argv[1]=='train':
+        train(fov=fov)
+    elif sys.argv[1]=='test':
+        test(fov=fov)
