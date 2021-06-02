@@ -170,7 +170,7 @@ def l2_distance(overhead_cropped, surface_embed):
     surface_normalized = surface_normalized.view(batch_surface, c, h, surface_width)
 
     # calculate L2 distance
-    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_surface, batch_overhead]
+    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_overhead, batch_surface]
 
     return distance
 
@@ -280,7 +280,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 
-def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -297,7 +297,6 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8
     # Load the neural networks
     surface_encoder = prep_model().to(device)
     overhead_encoder = prep_model().to(device)
-
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
