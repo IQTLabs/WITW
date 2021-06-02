@@ -1,3 +1,4 @@
+import boto3
 import json
 import os
 import httpx
@@ -15,6 +16,36 @@ PRIVACY_FILTER = 1 #only public metadata
 CONTENT_TYPE = 1 #only metadata
 HAS_GEO = True  #only geotagged metadata
 GEO_CTX = 0     #0=all, 1=indoor, 2=outdoor
+BUCKET='witw-quick'
+
+def get_aws_access_key_id():
+    try:
+        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+            lines = secret_file.readlines()
+            aki = lines[1].strip().split('=')[1]
+            print(f'{aki}')
+            return aki
+    except IOError as err:
+        print(f'{err}')
+        return None
+def get_aws_secret_access_key():
+    try:
+        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+            lines = secret_file.readlines()
+            sak = lines[2].strip().split('=')[1]
+            print(f'{sak}')
+            return sak
+    except IOError:
+        return None
+
+def get_aws_session_token():
+    try:
+        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+            lines = secret_file.readlines()
+            st = lines[3].strip().split('=')[1]
+            return st
+    except IOError:
+        return None
 
 def get_secret(secret_name):
     try:
@@ -107,15 +138,15 @@ def get_known_urls(cfg):
 def write_urls(urls, cfg):
     for key in cfg['cities']:
         city=key.replace(" ", "_")
-        directory=f'/data/{city}'
+        directory=os.path.join('/data', city)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
-        file_path=f'{directory}/urls.txt'
+        file_path=os.path.join(directory, 'urls.txt')
         if cfg['cities'][key]['download'] != 'photos':
             with open(file_path, 'w') as f:
                 for url in urls[city]:
-                    f.writeline(url)
+                    f.write(f'{url}\n')
 
 def get_metadata(cfg):
     metadata = None
@@ -123,10 +154,10 @@ def get_metadata(cfg):
     if cfg['refresh_metadata']:
         print('fetching metadata')
         urls = get_known_urls(cfg)
-        fetch_metadata(cfg, metadata, urls)
+        metadata = fetch_metadata(cfg, metadata, urls)
         print('writing metadata')
         write_metadata(metadata, cfg)
-        print
+        print('writing url list')
         write_urls(urls, cfg)
         
 
@@ -143,11 +174,16 @@ def fetch_metadata(cfg, metadata, urls):
     extras+='last_update,geo,tags, machine_tags, o_dims, media,'
     extras+='url_m,url_n,url_z,url_c,url_l,url_o'
 
-    metadata = {}
     inserted_ids=[]
 
     for key in cfg['cities']:
-        boxes = get_usable_bounding_boxes(list(cfg['cities'][key]['bounding_boxes']), cfg)
+        count=0
+        dl_limit = cfg['cities'][key]['download_limit']
+
+        if dl_limit > 1000:
+            boxes = get_usable_bounding_boxes(list(cfg['cities'][key]['bounding_boxes']), cfg)
+        else:
+            boxes = list(cfg['cities'][key]['bounding_boxes'])
         city_urls = urls[key]
 
         if not key in metadata:
@@ -185,10 +221,13 @@ def fetch_metadata(cfg, metadata, urls):
                         page=p)
                     for ph in city_pics['photos']['photo']:
                         # metadata[key]['images'].append(ph)
+                        if count > dl_limit:
+                            break
                         if cfg["url_field"] in ph and not ph[cfg["url_field"]] in city_urls:
                             metadata[key]['images'].append(ph)
                             city_urls.add(ph[cfg["url_field"]])
                             metadata[key]['image_count']+=1
+                            count += 1
 
                 except FlickrError as err:
                     print(f'Error retrieving page {p} for bounding box {bbox}')
@@ -197,16 +236,21 @@ def fetch_metadata(cfg, metadata, urls):
         # metadata[key]['image_count'] = total
         # print(f"length of inserted ids for {key}: {len(inserted_ids)}")
         # print(f"total for {key}: {len(metadata[key]['images'])}")
-    return
+    return metadata
 
 def write_metadata(metadata, cfg):
     for key in metadata:
         city=key.replace(" ", "_")
-        directory=f'/data/{city}'
+        print(f'{city}')
+        directory=os.path.join('data',city)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
-        file_path=f'{directory}/metadata.json'
+        file_path=os.path.join(directory,'metadata.json')
+        dl_flag =cfg['cities'][key]['download'] 
+        print(f'{dl_flag}')
+        print(f'{file_path}')
+        print(f'{metadata[key]}')
         if cfg['cities'][key]['download'] != 'photos':
             with open(file_path, 'w') as f:
                 json.dump(metadata[key], f, indent=2)
@@ -223,8 +267,14 @@ def read_metadata(cfg):
 
     return metadata
 
-
 def download_photos(metadata, cfg):
+    aki = get_aws_access_key_id()
+    sak = get_aws_secret_access_key()
+    st = get_aws_session_token()
+
+    print(f'{aki}::::{sak}::::{st}')
+    client = boto3.client('s3', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
+
     for key in metadata:
         if cfg['cities'][key]['download'] == 'metadata':
             continue
@@ -244,15 +294,19 @@ def download_photos(metadata, cfg):
                 url = photo_list[idx][cfg["url_field"]]
                 file_name = url.split('/')[-1]
                 file_path=f'{directory}/{file_name}'
+                chunks=bytearray()
                 with open(file_path, 'wb') as download_file:
                     with httpx.stream("GET", url) as response:
 
                         with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
                             num_bytes_downloaded = response.num_bytes_downloaded
                             for chunk in response.iter_bytes():
+                                chunks.extend(chunk)
                                 download_file.write(chunk)
                                 progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
                                 num_bytes_downloaded = response.num_bytes_downloaded
+
+                client.put_object(Body=chunks, Bucket=BUCKET, Key=file_name)
 
 
 def main(config_file):
