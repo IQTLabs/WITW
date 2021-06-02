@@ -55,13 +55,17 @@ def get_usable_bounding_boxes(nominal_boxes, cfg):
             divide_flag = True
         else:
             time.sleep(cfg["time_delay"])
-            box_pics = flickr.photos.search(
-                privacy_filter=PRIVACY_FILTER, bbox=str_box,
-                content_type=CONTENT_TYPE,
-                has_geo=HAS_GEO, geo_context=GEO_CTX,
-                license=license, extras=extras, per_page=cfg["page_size"])
-            total_imgs = int(box_pics['photos']['total'])
-            divide_flag = (total_imgs >= cfg["density_limit"] and box_area > cfg["min_area"])
+            try:
+                box_pics = flickr.photos.search(
+                    privacy_filter=PRIVACY_FILTER, bbox=str_box,
+                    content_type=CONTENT_TYPE,
+                    has_geo=HAS_GEO, geo_context=GEO_CTX,
+                    license=license, extras=extras, per_page=cfg["page_size"])
+                total_imgs = int(box_pics['photos']['total'])
+                divide_flag = (total_imgs >= cfg["density_limit"] and box_area > cfg["min_area"])
+            except FlickrError as err:
+                print(f'Error retrieving intitial page for bounding box {bbox}')
+                print(f'{err}')
         # print('%10.4f %5i %s %s' % (box_area/1.E6, total_imgs, 'branch'
         #                             if divide_flag else 'leaf  ', box))
         if divide_flag:
@@ -86,20 +90,49 @@ def get_usable_bounding_boxes(nominal_boxes, cfg):
     print(city_total)
     return boxes
 
+def get_known_urls(cfg):
+    urls = {}
+    for key in cfg['cities']:
+        city=key.replace(" ", "_")
+        file_path=f'/data/{city}/urls.txt'
+        city_urls=set()
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                lines = f.readlines()
+                for line in lines:
+                    city_urls.add(line.strip())
+        urls[key] = city_urls
+    return urls
+
+def write_urls(urls, cfg):
+    for key in cfg['cities']:
+        city=key.replace(" ", "_")
+        directory=f'/data/{city}'
+        if not os.path.exists(directory):
+            os.mkdir(directory)
+
+        file_path=f'{directory}/urls.txt'
+        if cfg['cities'][key]['download'] != 'photos':
+            with open(file_path, 'w') as f:
+                for url in urls[city]:
+                    f.writeline(url)
+
 def get_metadata(cfg):
     metadata = None
-
+    metadata = read_metadata(cfg)
     if cfg['refresh_metadata']:
-        print('fettching metadata')
-        metadata = fetch_metadata(cfg)
+        print('fetching metadata')
+        urls = get_known_urls(cfg)
+        fetch_metadata(cfg, metadata, urls)
         print('writing metadata')
         write_metadata(metadata, cfg)
-    else:
-        metadata = read_metadata(cfg)
+        print
+        write_urls(urls, cfg)
+        
 
     return metadata
 
-def fetch_metadata(cfg):
+def fetch_metadata(cfg, metadata, urls):
     FLICKR_PUBLIC = get_secret('flickr_api_key')
     FLICKR_SECRET = get_secret('flickr_api_secret')
 
@@ -112,13 +145,15 @@ def fetch_metadata(cfg):
 
     metadata = {}
     inserted_ids=[]
-    print(f'{cfg}')
 
     for key in cfg['cities']:
         boxes = get_usable_bounding_boxes(list(cfg['cities'][key]['bounding_boxes']), cfg)
-        metadata[key]={}
-        # metadata[key]['image_count'] = total
-        metadata[key]['images'] = []
+        city_urls = urls[key]
+
+        if not key in metadata:
+            metadata[key]={}
+            metadata[key]['image_count'] = 0
+            metadata[key]['images'] = []
         total = 0
 
         for bbox in tqdm(boxes, desc=key):
@@ -126,13 +161,18 @@ def fetch_metadata(cfg):
             bbox_str = ",".join(temp)
 
             time.sleep(cfg["time_delay"])
-            city_pics = flickr.photos.search(
-                privacy_filter=PRIVACY_FILTER, bbox=bbox_str,
-                content_type=CONTENT_TYPE,
-                has_geo=HAS_GEO, geo_context=GEO_CTX,
-                license=license, extras=extras, per_page=cfg["page_size"])
-            total_pages = city_pics['photos']['pages']
-            total += int(city_pics['photos']['total'])
+            total_pages=0
+            try:
+                city_pics = flickr.photos.search(
+                    privacy_filter=PRIVACY_FILTER, bbox=bbox_str,
+                    content_type=CONTENT_TYPE,
+                    has_geo=HAS_GEO, geo_context=GEO_CTX,
+                    license=license, extras=extras, per_page=cfg["page_size"])
+                total_pages = city_pics['photos']['pages']
+                total += int(city_pics['photos']['total'])
+            except FlickrError as err:
+                print(f'Error retrieving intitial page for bounding box {bbox}')
+                print(f'{err}')
 
             for p in range(1, total_pages):
                 try:
@@ -144,19 +184,20 @@ def fetch_metadata(cfg):
                         license=license, extras=extras, per_page=cfg["page_size"],
                         page=p)
                     for ph in city_pics['photos']['photo']:
-                        metadata[key]['images'].append(ph)
-                        # if not ph['id'] in inserted_ids:
-                        #     metadata[key]['images'].append(ph)
-                        #     inserted_ids.append(ph['id'])
+                        # metadata[key]['images'].append(ph)
+                        if cfg["url_field"] in ph and not ph[cfg["url_field"]] in city_urls:
+                            metadata[key]['images'].append(ph)
+                            city_urls.add(ph[cfg["url_field"]])
+                            metadata[key]['image_count']+=1
 
                 except FlickrError as err:
                     print(f'Error retrieving page {p} for bounding box {bbox}')
                     print(f'{err}')
 
-        metadata[key]['image_count'] = total
+        # metadata[key]['image_count'] = total
         # print(f"length of inserted ids for {key}: {len(inserted_ids)}")
         # print(f"total for {key}: {len(metadata[key]['images'])}")
-    return metadata
+    return
 
 def write_metadata(metadata, cfg):
     for key in metadata:
@@ -175,9 +216,10 @@ def read_metadata(cfg):
     for key in cfg['cities']:
         city=key.replace(" ", "_")
         file_path=f'/data/{city}/metadata.json'
-        with open(file_path, 'r') as f:
-            loaded = json.load(f)
-            metadata[city]= loaded
+        if os.path.exists(file_path):
+            with open(file_path, 'r') as f:
+                loaded = json.load(f)
+                metadata[city]= loaded
 
     return metadata
 

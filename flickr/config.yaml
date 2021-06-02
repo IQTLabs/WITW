@@ -4,11 +4,11 @@ density_limit: 4000
 min_area: 1 #m^2; bounding boxes smaller than this are never divided
 max_area: 2000000 #m^2; bounding boxes larger than this are always divided
 time_delay: 2
-refresh_metadata: false
+refresh_metadata: true
 cities:
   - name: "01_rio"
     bounding_boxes: [[-43.8574219,-23.1152344,-43.1542969,-22.7636719]]
-    download: "photos"
+    download: "metadata"
     download_limit: -1
   # - name: "02_vegas"
   #   bounding_boxes: [[-115.3075176,36.1212777,-115.1526078,36.2639592]]
