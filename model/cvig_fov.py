@@ -86,14 +86,16 @@ class HorizCircPadding(nn.Module):
     Modify nn.Conv2d layer to use circular padding in horizontal direction
     and zero padding in vertical direction, while retaining weights.
     """
-    def __init__(self, layer, padding=(1, 1)):
+    def __init__(self, layer):
         super().__init__()
         self.layer = layer
-        self.padding = padding
-
+        padding = self.layer.padding
+        # Vertical zero padding with prelayer
         self.prelayer = torch.nn.ConstantPad2d(
-            (0, 0, self.padding[0], self.padding[0]), 0)
+            (0, 0, padding[0], padding[0]), 0)
+        # Horizontal circular padding with layer
         self.layer.padding = (0, padding[1])
+        self.layer._reversed_padding_repeated_twice = torch.nn.modules.utils._reverse_repeat_tuple(self.layer.padding, 2)
         self.layer.padding_mode='circular'
     def forward(self, x):
         x = self.prelayer(x)
