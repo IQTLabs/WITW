@@ -81,7 +81,7 @@ class PolarTransform(object):
         return data
 
 
-def prep_model():
+def prep_model(circ_padding=False):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
@@ -103,6 +103,12 @@ def prep_model():
         torch_layer_num = int(name.split('.')[0])
         if torch_layer_num < 17:
             param.requires_grad = False
+
+    # circular padding
+    if circ_padding:
+        for layer in model.features:
+            if isinstance(layer, torch.nn.Conv2d):
+                layer.padding_mode = 'circular'
 
     return model
 
@@ -207,8 +213,8 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     # if torch.cuda.device_count() > 1:
     #     surface_encoder = nn.DataParallel(surface_encoder)
     #     overhead_encoder = nn.DataParallel(overhead_encoder)
@@ -295,8 +301,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=1
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
