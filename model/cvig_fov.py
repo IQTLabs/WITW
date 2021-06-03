@@ -81,7 +81,29 @@ class PolarTransform(object):
         return data
 
 
-def prep_model():
+class HorizCircPadding(nn.Module):
+    """
+    Modify nn.Conv2d layer to use circular padding in horizontal direction
+    and zero padding in vertical direction, while retaining weights.
+    """
+    def __init__(self, layer):
+        super().__init__()
+        self.layer = layer
+        padding = self.layer.padding
+        # Vertical zero padding with prelayer
+        self.prelayer = torch.nn.ConstantPad2d(
+            (0, 0, padding[0], padding[0]), 0)
+        # Horizontal circular padding with layer
+        self.layer.padding = (0, padding[1])
+        self.layer._reversed_padding_repeated_twice = torch.nn.modules.utils._reverse_repeat_tuple(self.layer.padding, 2)
+        self.layer.padding_mode='circular'
+    def forward(self, x):
+        x = self.prelayer(x)
+        x = self.layer(x)
+        return x
+
+
+def prep_model(circ_padding=False):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
@@ -103,6 +125,12 @@ def prep_model():
         torch_layer_num = int(name.split('.')[0])
         if torch_layer_num < 17:
             param.requires_grad = False
+
+    # circular padding
+    if circ_padding:
+        for i, layer in enumerate(model.features):
+            if isinstance(layer, torch.nn.Conv2d):
+                model.features[i] = HorizCircPadding(layer)
 
     return model
 
@@ -170,7 +198,7 @@ def l2_distance(overhead_cropped, surface_embed):
     surface_normalized = surface_normalized.view(batch_surface, c, h, surface_width)
 
     # calculate L2 distance
-    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_surface, batch_overhead]
+    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_overhead, batch_surface]
 
     return distance
 
@@ -207,8 +235,8 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     # if torch.cuda.device_count() > 1:
     #     surface_encoder = nn.DataParallel(surface_encoder)
     #     overhead_encoder = nn.DataParallel(overhead_encoder)
@@ -280,7 +308,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 
-def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -295,9 +323,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
-
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
