@@ -81,6 +81,26 @@ class PolarTransform(object):
         return data
 
 
+class HorizCircPadding(nn.Module):
+    """
+    Modify nn.Conv2d layer to use circular padding in horizontal direction
+    and zero padding in vertical direction, while retaining weights.
+    """
+    def __init__(self, layer, padding=(1, 1)):
+        super().__init__()
+        self.layer = layer
+        self.padding = padding
+
+        self.prelayer = torch.nn.ConstantPad2d(
+            (0, 0, self.padding[0], self.padding[0]), 0)
+        self.layer.padding = (0, padding[1])
+        self.layer.padding_mode='circular'
+    def forward(self, x):
+        x = self.prelayer(x)
+        x = self.layer(x)
+        return x
+
+
 def prep_model(circ_padding=False):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
@@ -106,9 +126,9 @@ def prep_model(circ_padding=False):
 
     # circular padding
     if circ_padding:
-        for layer in model.features:
+        for i, layer in enumerate(model.features):
             if isinstance(layer, torch.nn.Conv2d):
-                layer.padding_mode = 'circular'
+                model.features[i] = HorizCircPadding(layer)
 
     return model
 
