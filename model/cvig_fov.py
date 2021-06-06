@@ -103,6 +103,20 @@ class HorizCircPadding(nn.Module):
         return x
 
 
+class AddDropout(nn.Module):
+    """
+    Modify nn.Conv2d layer to add dropout, while retaining weights.
+    """
+    def __init__(self, layer, p=0.5):
+        super().__init__()
+        self.layer = layer
+        self.postlayer = torch.nn.Dropout2d(p=p)
+    def forward(self, x):
+        x = self.layer(x)
+        x = self.postlayer(x)
+        return x
+
+
 def prep_model(circ_padding=False):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
@@ -115,10 +129,16 @@ def prep_model(circ_padding=False):
     model.features = model.features[:23]
 
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
 
     # only train last 6 conv layers
     for name, param in model.features.named_parameters():
@@ -131,6 +151,10 @@ def prep_model(circ_padding=False):
         for i, layer in enumerate(model.features):
             if isinstance(layer, torch.nn.Conv2d):
                 model.features[i] = HorizCircPadding(layer)
+
+    # dropout
+    for i in [17, 19, 21]:
+        model.features[i] = AddDropout(model.features[i], 0.2)
 
     return model
 
