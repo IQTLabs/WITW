@@ -118,6 +118,7 @@ def annotate_dataframe(df):
 
 def download(df, out_dir='/local_data/geoloc/sat/photos'):
     # Download Flickr photos
+    # Note: Not recommended for production use
     for idx, row in df.iterrows():
         url = row['surface_url']
         dest = os.path.join(out_dir, row['id'] + '.jpg')
@@ -168,8 +169,8 @@ def clip(dframe, edge=225., max_out=None,
 
 
 if __name__ == '__main__':
-    json_dir = '../api/data'
-    csv_path = '../api/candidate_photos.csv'
+    json_dir = '/local_data/geoloc/terrestrial/metadata'
+    csv_path = '/local_data/geoloc/dataset.csv'
 
     if True: # JSON METADATA -> CSV FILE
         dfs = []
@@ -187,9 +188,9 @@ if __name__ == '__main__':
         print('all', len(df))
 
         # Optional shuffle
-        df = df.sample(frac=1).reset_index(drop=True)
+        # df = df.sample(frac=1).reset_index(drop=True)
         # Optional cutoff
-        df = df.head(500)
+        # df = df.head(500)
 
         df.to_csv(csv_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
 
