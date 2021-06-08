@@ -1,4 +1,5 @@
 import boto3
+import botocore.exceptions
 import json
 import os
 import httpx
@@ -180,7 +181,7 @@ def fetch_metadata(cfg, metadata, urls):
         count=0
         dl_limit = cfg['cities'][key]['download_limit']
 
-        if dl_limit > 1000:
+        if dl_limit != -1 and dl_limit > 1000:
             boxes = get_usable_bounding_boxes(list(cfg['cities'][key]['bounding_boxes']), cfg)
         else:
             boxes = list(cfg['cities'][key]['bounding_boxes'])
@@ -221,7 +222,7 @@ def fetch_metadata(cfg, metadata, urls):
                         page=p)
                     for ph in city_pics['photos']['photo']:
                         # metadata[key]['images'].append(ph)
-                        if count > dl_limit:
+                        if dl_limit != -1 and count > dl_limit:
                             break
                         if cfg["url_field"] in ph and not ph[cfg["url_field"]] in city_urls:
                             metadata[key]['images'].append(ph)
@@ -296,17 +297,24 @@ def download_photos(metadata, cfg):
                 file_path=f'{directory}/{file_name}'
                 chunks=bytearray()
                 with open(file_path, 'wb') as download_file:
-                    with httpx.stream("GET", url) as response:
+                    try:
+                        with httpx.stream("GET", url) as response:
 
-                        with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
-                            num_bytes_downloaded = response.num_bytes_downloaded
-                            for chunk in response.iter_bytes():
-                                chunks.extend(chunk)
-                                download_file.write(chunk)
-                                progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                            with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
                                 num_bytes_downloaded = response.num_bytes_downloaded
+                                for chunk in response.iter_bytes():
+                                    chunks.extend(chunk)
+                                    download_file.write(chunk)
+                                    progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                                    num_bytes_downloaded = response.num_bytes_downloaded
+                    except httpx.ReadTimeout as err:
+                        print(f'error downloading file {city}/{file_name}')
 
-                client.put_object(Body=chunks, Bucket=BUCKET, Key=file_name)
+                try:
+                    client.put_object(Body=chunks, Bucket=BUCKET, Key=f'{city }/{file_name}')
+                except botocore.exceptions.ClientError as cerr:
+                    print(f'error uploading file {city}/{file_name}')
+                    print(f'{cerr}')
 
 
 def main(config_file):
