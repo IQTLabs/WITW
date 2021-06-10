@@ -274,7 +274,8 @@ def download_photos(metadata, cfg):
     st = get_aws_session_token()
 
     print(f'{aki}::::{sak}::::{st}')
-    client = boto3.client('s3', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
+    client = boto3.client('s3', region_name='us-east-2', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
+    lambda_client = boto3.client('lambda', region_name='us-east-2', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
 
     for key in metadata:
         if cfg['cities'][key]['download'] == 'metadata':
@@ -293,28 +294,33 @@ def download_photos(metadata, cfg):
 
             if cfg["url_field"] in photo_list[idx]:
                 url = photo_list[idx][cfg["url_field"]]
-                file_name = url.split('/')[-1]
-                file_path=f'{directory}/{file_name}'
-                chunks=bytearray()
-                with open(file_path, 'wb') as download_file:
-                    try:
-                        with httpx.stream("GET", url) as response:
+                lambda_payload = json.dumps({"city":city,"url":url}).encode()
+                response = lambda_client.invoke(FunctionName='witw_uploader', 
+                     InvocationType='RequestResponse',
+                     Payload=lambda_payload)
+                
+                # file_name = url.split('/')[-1]
+                # file_path=f'{directory}/{file_name}'
+                # chunks=bytearray()
+                # with open(file_path, 'wb') as download_file:
+                #     try:
+                #         with httpx.stream("GET", url) as response:
 
-                            with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
-                                num_bytes_downloaded = response.num_bytes_downloaded
-                                for chunk in response.iter_bytes():
-                                    chunks.extend(chunk)
-                                    download_file.write(chunk)
-                                    progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
-                                    num_bytes_downloaded = response.num_bytes_downloaded
-                    except httpx.ReadTimeout as err:
-                        print(f'error downloading file {city}/{file_name}')
+                #             with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                #                 num_bytes_downloaded = response.num_bytes_downloaded
+                #                 for chunk in response.iter_bytes():
+                #                     chunks.extend(chunk)
+                #                     download_file.write(chunk)
+                #                     progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                #                     num_bytes_downloaded = response.num_bytes_downloaded
+                #     except httpx.ReadTimeout as err:
+                #         print(f'error downloading file {city}/{file_name}')
 
-                try:
-                    client.put_object(Body=chunks, Bucket=BUCKET, Key=f'{city }/{file_name}')
-                except botocore.exceptions.ClientError as cerr:
-                    print(f'error uploading file {city}/{file_name}')
-                    print(f'{cerr}')
+                # try:
+                #     client.put_object(Body=chunks, Bucket=BUCKET, Key=f'{city }/{file_name}')
+                # except botocore.exceptions.ClientError as cerr:
+                #     print(f'error uploading file {city}/{file_name}')
+                #     print(f'{cerr}')
 
 
 def main(config_file):
