@@ -1,17 +1,77 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import math
+import time
+import tqdm
+import numpy as np
+import pandas as pd
+from skimage import io
+
 import torch
 import torchvision
-from torch.nn.modules.utils import  _reverse_repeat_tuple
-import matplotlib.pyplot as plt
-import math
-import tqdm
-
-from cvig import *
-
 
 class Globals:
     surface_height_max = 128
     surface_width_max = 512
     overhead_size = 256
+
+
+class ImagePairDataset(torch.utils.data.Dataset):
+    """
+    Load pairs of images (one surface and one overhead)
+    from paths specified in a CSV file.
+    """
+    def __init__(self, csv_path, base_path=None, transform=None):
+        """
+        Arguments:
+        csv_path: Path to CSV file containing image paths.  File format:
+            surface_file.tif,overhead_file.tif
+        base_path: Starting folder for any relative file paths,
+            if different from the folder containing the CSV file.
+        """
+        self.csv_path = csv_path
+        if base_path is not None:
+            self.base_path = base_path
+        else:
+            self.base_path = os.path.dirname(csv_path)
+        self.transform = transform
+
+        # Read file paths and convert any relative file paths to absolute
+        path_formats = {
+            'cvusa': {
+                'path_columns' : [0, 1],
+                'path_names' : ['overhead', 'surface'],
+                'header' : None
+            },
+            'witw': {
+                'path_columns' : [15, 16],
+                'path_names' : ['surface', 'overhead'],
+                'header' : 0
+            }
+        }
+        path_format = path_formats['cvusa']
+        file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
+        self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        # Load data
+        surface_path = self.file_paths.iloc[idx]['surface']
+        overhead_path = self.file_paths.iloc[idx]['overhead']
+        surface_raw = io.imread(surface_path)
+        overhead_raw = io.imread(overhead_path)
+        surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
+        overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'surface':surface, 'overhead':overhead}
+
+        # Transform data
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
 
 
 class ResizeCVUSA(object):
@@ -81,10 +141,10 @@ class PolarTransform(object):
         return data
 
 
-class HorizCircPadding(nn.Module):
+class HorizCircPadding(torch.nn.Module):
     """
-    Modify nn.Conv2d layer to use circular padding in horizontal direction
-    and zero padding in vertical direction, while retaining weights.
+    Modify torch.nn.Conv2d layer to use circular padding in horizontal
+    direction and zero padding in vertical direction, while retaining weights.
     """
     def __init__(self, layer):
         super().__init__()
@@ -103,9 +163,9 @@ class HorizCircPadding(nn.Module):
         return x
 
 
-class AddDropout(nn.Module):
+class AddDropout(torch.nn.Module):
     """
-    Modify nn.Conv2d layer to add dropout, while retaining weights.
+    Modify torch.nn.Conv2d layer to add dropout, while retaining weights.
     """
     def __init__(self, layer, p=0.5):
         super().__init__()
@@ -262,8 +322,8 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     surface_encoder = prep_model(circ_padding=False).to(device)
     overhead_encoder = prep_model(circ_padding=True).to(device)
     # if torch.cuda.device_count() > 1:
-    #     surface_encoder = nn.DataParallel(surface_encoder)
-    #     overhead_encoder = nn.DataParallel(overhead_encoder)
+    #     surface_encoder = torch.nn.DataParallel(surface_encoder)
+    #     overhead_encoder = torch.nn.DataParallel(overhead_encoder)
 
     # Loss function
     loss_func = triplet_loss
