@@ -1,17 +1,77 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import math
+import time
+import tqdm
+import numpy as np
+import pandas as pd
+from skimage import io
+
 import torch
 import torchvision
-from torch.nn.modules.utils import  _reverse_repeat_tuple
-import matplotlib.pyplot as plt
-import math
-import tqdm
-
-from cvig import *
-
 
 class Globals:
     surface_height_max = 128
     surface_width_max = 512
     overhead_size = 256
+
+
+class ImagePairDataset(torch.utils.data.Dataset):
+    """
+    Load pairs of images (one surface and one overhead)
+    from paths specified in a CSV file.
+    """
+    def __init__(self, csv_path, base_path=None, transform=None):
+        """
+        Arguments:
+        csv_path: Path to CSV file containing image paths.  File format:
+            surface_file.tif,overhead_file.tif
+        base_path: Starting folder for any relative file paths,
+            if different from the folder containing the CSV file.
+        """
+        self.csv_path = csv_path
+        if base_path is not None:
+            self.base_path = base_path
+        else:
+            self.base_path = os.path.dirname(csv_path)
+        self.transform = transform
+
+        # Read file paths and convert any relative file paths to absolute
+        path_formats = {
+            'cvusa': {
+                'path_columns' : [0, 1],
+                'path_names' : ['overhead', 'surface'],
+                'header' : None
+            },
+            'witw': {
+                'path_columns' : [15, 16],
+                'path_names' : ['surface', 'overhead'],
+                'header' : 0
+            }
+        }
+        path_format = path_formats['cvusa']
+        file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
+        self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        # Load data
+        surface_path = self.file_paths.iloc[idx]['surface']
+        overhead_path = self.file_paths.iloc[idx]['overhead']
+        surface_raw = io.imread(surface_path)
+        overhead_raw = io.imread(overhead_path)
+        surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
+        overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'surface':surface, 'overhead':overhead}
+
+        # Transform data
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
 
 
 class ResizeCVUSA(object):
@@ -81,7 +141,43 @@ class PolarTransform(object):
         return data
 
 
-def prep_model():
+class HorizCircPadding(torch.nn.Module):
+    """
+    Modify torch.nn.Conv2d layer to use circular padding in horizontal
+    direction and zero padding in vertical direction, while retaining weights.
+    """
+    def __init__(self, layer):
+        super().__init__()
+        self.layer = layer
+        padding = self.layer.padding
+        # Vertical zero padding with prelayer
+        self.prelayer = torch.nn.ConstantPad2d(
+            (0, 0, padding[0], padding[0]), 0)
+        # Horizontal circular padding with layer
+        self.layer.padding = (0, padding[1])
+        self.layer._reversed_padding_repeated_twice = torch.nn.modules.utils._reverse_repeat_tuple(self.layer.padding, 2)
+        self.layer.padding_mode='circular'
+    def forward(self, x):
+        x = self.prelayer(x)
+        x = self.layer(x)
+        return x
+
+
+class AddDropout(torch.nn.Module):
+    """
+    Modify torch.nn.Conv2d layer to add dropout, while retaining weights.
+    """
+    def __init__(self, layer, p=0.5):
+        super().__init__()
+        self.layer = layer
+        self.postlayer = torch.nn.Dropout2d(p=p)
+    def forward(self, x):
+        x = self.layer(x)
+        x = self.postlayer(x)
+        return x
+
+
+def prep_model(circ_padding=False):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
@@ -93,16 +189,32 @@ def prep_model():
     model.features = model.features[:23]
 
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
     model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
     model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
+    torch.nn.init.xavier_uniform_(model.features[-1].weight)
+    torch.nn.init.zeros_(model.features[-1].bias)
 
     # only train last 6 conv layers
     for name, param in model.features.named_parameters():
         torch_layer_num = int(name.split('.')[0])
         if torch_layer_num < 17:
             param.requires_grad = False
+
+    # circular padding
+    if circ_padding:
+        for i, layer in enumerate(model.features):
+            if isinstance(layer, torch.nn.Conv2d):
+                model.features[i] = HorizCircPadding(layer)
+
+    # dropout
+    for i in [17, 19, 21]:
+        model.features[i] = AddDropout(model.features[i], 0.2)
 
     return model
 
@@ -170,7 +282,7 @@ def l2_distance(overhead_cropped, surface_embed):
     surface_normalized = surface_normalized.view(batch_surface, c, h, surface_width)
 
     # calculate L2 distance
-    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_surface, batch_overhead]
+    distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_overhead, batch_surface]
 
     return distance
 
@@ -207,11 +319,11 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     # if torch.cuda.device_count() > 1:
-    #     surface_encoder = nn.DataParallel(surface_encoder)
-    #     overhead_encoder = nn.DataParallel(overhead_encoder)
+    #     surface_encoder = torch.nn.DataParallel(surface_encoder)
+    #     overhead_encoder = torch.nn.DataParallel(overhead_encoder)
 
     # Loss function
     loss_func = triplet_loss
@@ -280,7 +392,7 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 
-def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8):
+def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -295,9 +407,8 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=32, num_workers=8
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural networks
-    surface_encoder = prep_model().to(device)
-    overhead_encoder = prep_model().to(device)
-
+    surface_encoder = prep_model(circ_padding=False).to(device)
+    overhead_encoder = prep_model(circ_padding=True).to(device)
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()

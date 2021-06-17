@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# Bash script to filter a WITW dataset CSV file
+#
+# Arguments:
+# 1 CSV file input
+# 2 CSV file output
+# 3 List of IDs to retain or remove
+# 4 "retain" or "remove"
+
+csv_input=$1
+csv_output=$2
+id_list=$3
+task=$4
+id_column=1
+
+if [ $task != "retain" ] && [ $task != "remove" ]; then
+    echo "Options are 'retain' and 'remove' only."
+    exit 1
+fi
+
+> $csv_output
+first_line=true
+while IFS= read -r line; do
+    if $first_line; then
+	echo $line >> $csv_output
+	first_line=false
+    else
+	id=$(echo $line | cut -d"," -f"$id_column" | sed s/\"//g)
+	id_count=$(grep $id $id_list)
+	if [[ ( $task == "retain" && id_count -gt 0 ) || ( $task == "remove" && id_count -eq 0 ) ]]; then
+	    echo $line >> $csv_output
+	fi
+    fi
+done < "$csv_input"
