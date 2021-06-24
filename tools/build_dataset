@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# Bash script to build WITW dataset.  Assumes that satellite image strips
+# have already been formatted and that Flickr photos have already been
+# downloaded.
+
+dataset_folder=/local_data/geoloc/dataset
+records_folder=/local_data/geoloc/records
+flickr_folder=/local_data/geoloc/terrestrial/download
+tiles_folder=/local_data/geoloc/sat/tiles
+places_folder=~/src/geoloc/places/places365
+
+mkdir -p $records_folder
+mkdir -p $dataset_folder
+mkdir -p $dataset_folder/surface
+mkdir -p $dataset_folder/overhead
+
+# Make CSV file for all available images
+echo CSV file of all images
+./sitetiles.py csv
+mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
+
+# Identify and remove single-band images
+echo Remove single-band images
+#bash -c "cd $flickr_folder && find | sort | xargs file | grep 'frames 1' | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f3 | cut -d'_' -f1 > $records_folder/id_remove_singleband.txt"
+./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
+
+# Identify and remove indoor images
+echo Remove indoor images
+bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
+./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
+
+# Copy finished CSV file into dataset
+echo Copying CSV file
+cp $records_folder/dataset_outdoor.csv $dataset_folder/dataset.csv
+
+# Generate satellite imagery tiles
+echo Generate satellite tiles
+./sitetiles.py dataset
+find $tiles_folder -name "*.jpg" | xargs -I{} mv {} $dataset_folder/overhead
+
+# Copy Flickr photos into dataset
+echo Copy Flickr photos
+for id in $(<$dataset_folder/dataset.csv cut -d',' -f1 | sed 's/"//g' | awk '{if (NR > 1) print}'); do sourcefile=$(find $flickr_folder -name "${id}_*.jpg"); cp $sourcefile $dataset_folder/surface/$id.jpg; done
