@@ -10,6 +10,8 @@ import pandas as pd
 from osgeo import osr
 from osgeo import gdal
 
+gdal.SetConfigOption('GDAL_PAM_ENABLED', 'NO')
+
 names = [
     '01_rio',
     '02_vegas',
@@ -171,7 +173,7 @@ def clip(dframe, edge=225., max_out=None,
 
 if __name__ == '__main__':
     json_dir = '/local_data/geoloc/terrestrial/metadata'
-    csv_path = '/local_data/geoloc/dataset.csv'
+    csv_path = '/local_data/geoloc/dataset/dataset.csv'
 
     if 'csv' in sys.argv[1:]: # JSON METADATA -> CSV FILE
         dfs = []
