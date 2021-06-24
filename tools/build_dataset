@@ -15,24 +15,34 @@ mkdir -p $dataset_folder
 mkdir -p $dataset_folder/surface
 mkdir -p $dataset_folder/overhead
 
-# Make CSV file for all available images
+# Make CSV file for all available photos
 echo CSV file of all images
-./sitetiles.py csv
-mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
+#./sitetiles.py csv
+#mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
 
-# Identify and remove single-band images
+# Identify and remove single-band photos
 echo Remove single-band images
 #bash -c "cd $flickr_folder && find | sort | xargs file | grep 'frames 1' | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f3 | cut -d'_' -f1 > $records_folder/id_remove_singleband.txt"
-./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
+#./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
 
-# Identify and remove indoor images
+# Identify and remove indoor photos
 echo Remove indoor images
-bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
-./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
+#bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
+#./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
+
+# Identify and remove photos on a preset list
+echo Remove designated images
+if [ -s $records_folder/id_remove_list.txt ]; then
+    ./filter_csv $records_folder/dataset_outdoor.csv $records_folder/dataset_pastlist.csv $records_folder/id_remove_list.txt remove
+else
+    cp $records_folder/dataset_outdoor.csv $records_folder/dataset_pastlist.csv
+fi
+
+exit
 
 # Copy finished CSV file into dataset
 echo Copying CSV file
-cp $records_folder/dataset_outdoor.csv $dataset_folder/dataset.csv
+cp $records_folder/dataset_pastlist.csv $dataset_folder/dataset.csv
 
 # Generate satellite imagery tiles
 echo Generate satellite tiles
