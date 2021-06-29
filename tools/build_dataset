@@ -17,18 +17,18 @@ mkdir -p $dataset_folder/overhead
 
 # Make CSV file for all available photos
 echo CSV file of all images
-#./sitetiles.py csv
-#mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
+./sitetiles.py csv
+mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
 
 # Identify and remove single-band photos
 echo Remove single-band images
 #bash -c "cd $flickr_folder && find | sort | xargs file | grep 'frames 1' | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f3 | cut -d'_' -f1 > $records_folder/id_remove_singleband.txt"
-#./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
+./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
 
 # Identify and remove indoor photos
 echo Remove indoor images
-#bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
-#./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
+bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
+./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
 
 # Identify and remove photos on a preset list
 echo Remove designated images
@@ -38,17 +38,23 @@ else
     cp $records_folder/dataset_outdoor.csv $records_folder/dataset_pastlist.csv
 fi
 
-exit
-
-# Copy finished CSV file into dataset
-echo Copying CSV file
-cp $records_folder/dataset_pastlist.csv $dataset_folder/dataset.csv
-
 # Generate satellite imagery tiles
 echo Generate satellite tiles
+cp $records_folder/dataset_pastlist.csv $dataset_folder/dataset.csv
 ./sitetiles.py dataset
-find $tiles_folder -name "*.jpg" | xargs -I{} mv {} $dataset_folder/overhead
+
+# Identify and remove blank or partially-blank satellite images
+echo Remove partially-blank satellite tiles
+find $tiles_folder -type f | sort | xargs ./zero_frac.py | awk '{if ($(NF) > 0.05) print($1)}' | cut -d'/' -f6 | cut -d'.' -f1 > $records_folder/id_remove_satblank.txt
+./filter_csv $records_folder/dataset_pastlist.csv $records_folder/dataset_withsat.csv $records_folder/id_remove_satblank.txt remove
+
+# Copy CSV file into dataset
+cp $records_folder/dataset_withsat.csv $dataset_folder/dataset.csv
 
 # Copy Flickr photos into dataset
 echo Copy Flickr photos
-for id in $(<$dataset_folder/dataset.csv cut -d',' -f1 | sed 's/"//g' | awk '{if (NR > 1) print}'); do sourcefile=$(find $flickr_folder -name "${id}_*.jpg"); cp $sourcefile $dataset_folder/surface/$id.jpg; done
+for id in $(<$dataset_folder/dataset.csv cut -d',' -f1 | tail -n +2 | sed 's/"//g'); do sourcefile=$(find $flickr_folder -name "${id}_*.jpg"); cp $sourcefile $dataset_folder/surface/$id.jpg; done
+
+# Copy satellite images into dataset
+echo Copy satellite photos
+for id in $(<$dataset_folder/dataset.csv cut -d',' -f1 | tail -n +2 | sed 's/"//g'); do cp $tiles_folder/$id.jpg $dataset_folder/overhead/$id.jpg; done
