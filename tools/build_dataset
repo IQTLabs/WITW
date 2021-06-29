@@ -18,7 +18,7 @@ mkdir -p $dataset_folder/overhead
 # Make CSV file for all available photos
 echo CSV file of all images
 ./sitetiles.py csv
-mv $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
+cp $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
 
 # Identify and remove single-band photos
 echo Remove single-band images
@@ -27,7 +27,7 @@ echo Remove single-band images
 
 # Identify and remove indoor photos
 echo Remove indoor images
-bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
+#bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | sort | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
 ./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
 
 # Identify and remove photos on a preset list
@@ -48,8 +48,10 @@ echo Remove partially-blank satellite tiles
 find $tiles_folder -type f | sort | xargs ./zero_frac.py | awk '{if ($(NF) > 0.05) print($1)}' | cut -d'/' -f6 | cut -d'.' -f1 > $records_folder/id_remove_satblank.txt
 ./filter_csv $records_folder/dataset_pastlist.csv $records_folder/dataset_withsat.csv $records_folder/id_remove_satblank.txt remove
 
-# Copy CSV file into dataset
+# Copy CSV file into dataset and make train/test split
 cp $records_folder/dataset_withsat.csv $dataset_folder/dataset.csv
+grep -E '(aoi_name|Rio de Janeiro|Las Vegas|Shanghai|Khartoum|Atlanta|Moscow|Mumbai|San Juan|Dar es Salaam|Rotterdam)' $dataset_folder/dataset.csv > $dataset_folder/train.csv
+grep -E '(aoi_name|Paris)' $dataset_folder/dataset.csv > $dataset_folder/test.csv
 
 # Copy Flickr photos into dataset
 echo Copy Flickr photos
