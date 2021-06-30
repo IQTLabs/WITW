@@ -22,13 +22,13 @@ cp $dataset_folder/dataset.csv $records_folder/dataset_orig.csv
 
 # Identify and remove single-band photos
 echo Remove single-band images
-#bash -c "cd $flickr_folder && find | sort | xargs file | grep 'frames 1' | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f3 | cut -d'_' -f1 > $records_folder/id_remove_singleband.txt"
+bash -c "cd $flickr_folder && find | sort | xargs file | grep 'frames 1' | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f3 | cut -d'_' -f1 > $records_folder/id_remove_singleband.txt"
 sort -o $records_folder/id_remove_singleband.txt{,}
 ./filter_csv $records_folder/dataset_orig.csv $records_folder/dataset_multiband.csv $records_folder/id_remove_singleband.txt remove
 
 # Identify and remove indoor photos
 echo Remove indoor images
-#bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | sort | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
+bash -c "cd $places_folder && find $flickr_folder -name '*.jpg' | sort | xargs python run_placesCNN_cut.py | awk '{if (\$(NF) == 1) print(\$1)}' | cut -d'/' -f7 | cut -d'_' -f1 > $records_folder/id_retain_outdoor.txt"
 sort -o $records_folder/id_retain_outdoor.txt{,}
 ./filter_csv $records_folder/dataset_multiband.csv $records_folder/dataset_outdoor.csv $records_folder/id_retain_outdoor.txt retain
 
