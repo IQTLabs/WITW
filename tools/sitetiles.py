@@ -117,6 +117,8 @@ def annotate_dataframe(df):
     df['overhead_satellite'] = np.select(satellite_conditions,
                                          satellite_names,
                                          default='NotSpecified')
+    df['surface_path'] = 'surface/' + df['id'] + '.jpg'
+    df['overhead_path'] = 'overhead/' + df['id'] + '.jpg'
 
 
 def download(df, out_dir='/local_data/geoloc/sat/photos'):
