@@ -57,6 +57,7 @@ sort -o $records_folder/id_remove_satblank.txt{,}
 ./filter_csv $records_folder/dataset_pastlist.csv $records_folder/dataset_withsat.csv $records_folder/id_remove_satblank.txt remove
 
 # Copy CSV file into dataset and make train/test split
+echo Copy and split CSV
 cp $records_folder/dataset_withsat.csv $dataset_folder/dataset.csv
 grep -E '(aoi_name|Rio de Janeiro|Las Vegas|Shanghai|Khartoum|Atlanta|Moscow|Mumbai|San Juan|Dar es Salaam|Rotterdam)' $dataset_folder/dataset.csv > $dataset_folder/train.csv
 grep -E '(aoi_name|Paris)' $dataset_folder/dataset.csv > $dataset_folder/test.csv
@@ -69,5 +70,5 @@ while IFS= read -r line; do
 done <<< $(cat $dataset_folder/dataset.csv | tail -n +2)
 
 # Copy satellite images into dataset
-echo Copy satellite photos
+echo Copy satellite images
 for id in $(<$dataset_folder/dataset.csv cut -d',' -f1 | tail -n +2 | sed 's/"//g'); do cp $tiles_folder/$id.jpg $dataset_folder/overhead/$id.jpg; done
