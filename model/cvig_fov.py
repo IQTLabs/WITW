@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import os
 import sys
 import math
@@ -17,13 +18,23 @@ class Globals:
     surface_width_max = 512
     overhead_size = 256
 
+    dataset_paths = {
+        'cvusa': {
+            'train': './data/train-19zl.csv',
+            'test': './data/val-19zl.csv'
+        },
+        'witw': {
+            'train':'',
+            'test':''
+        }
+    }
 
 class ImagePairDataset(torch.utils.data.Dataset):
     """
     Load pairs of images (one surface and one overhead)
     from paths specified in a CSV file.
     """
-    def __init__(self, csv_path, base_path=None, transform=None):
+    def __init__(self, dataset, csv_path, base_path=None, transform=None):
         """
         Arguments:
         csv_path: Path to CSV file containing image paths.  File format:
@@ -51,7 +62,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
                 'header' : 0
             }
         }
-        path_format = path_formats['cvusa']
+        path_format = path_formats[dataset]
         file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
         self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
 
@@ -176,47 +187,53 @@ class AddDropout(torch.nn.Module):
         x = self.postlayer(x)
         return x
 
-
-def prep_model(circ_padding=False):
+class FOV_DSM(torch.nn.Module):
     """
     Prepare vgg16 model with modification from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
     CVPR 2020.
     """
-    model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16', pretrained=True)
-    # model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16_bn', pretrained=True)
+    def __init__(self, circ_padding=False):
+        super(FOV_DSM, self).__init__()
 
-    # shorten model based on Where Am I Looking modifications
-    model.features = model.features[:23]
+        model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16', pretrained=True)
+        # model = torch.hub.load('pytorch/vision:v0.6.0', 'vgg16_bn', pretrained=True)
 
-    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
-    torch.nn.init.xavier_uniform_(model.features[-1].weight)
-    torch.nn.init.zeros_(model.features[-1].bias)
-    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
-    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
-    torch.nn.init.xavier_uniform_(model.features[-1].weight)
-    torch.nn.init.zeros_(model.features[-1].bias)
-    model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
-    model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
-    torch.nn.init.xavier_uniform_(model.features[-1].weight)
-    torch.nn.init.zeros_(model.features[-1].bias)
+        # shorten model based on Where Am I Looking modifications
+        model.features = model.features[:23]
 
-    # only train last 6 conv layers
-    for name, param in model.features.named_parameters():
-        torch_layer_num = int(name.split('.')[0])
-        if torch_layer_num < 17:
-            param.requires_grad = False
+        model.features.add_module(str(len(model.features)), torch.nn.Conv2d(512, 256, 3, (2, 1), padding=1))
+        torch.nn.init.xavier_uniform_(model.features[-1].weight)
+        torch.nn.init.zeros_(model.features[-1].bias)
+        model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+        model.features.add_module(str(len(model.features)), torch.nn.Conv2d(256, 64, 3, (2, 1), padding=1))
+        torch.nn.init.xavier_uniform_(model.features[-1].weight)
+        torch.nn.init.zeros_(model.features[-1].bias)
+        model.features.add_module(str(len(model.features)), torch.nn.ReLU(inplace=True))
+        model.features.add_module(str(len(model.features)), torch.nn.Conv2d(64, 16, 3, padding=1))
+        torch.nn.init.xavier_uniform_(model.features[-1].weight)
+        torch.nn.init.zeros_(model.features[-1].bias)
 
-    # circular padding
-    if circ_padding:
-        for i, layer in enumerate(model.features):
-            if isinstance(layer, torch.nn.Conv2d):
-                model.features[i] = HorizCircPadding(layer)
+        # only train last 6 conv layers
+        for name, param in model.features.named_parameters():
+            torch_layer_num = int(name.split('.')[0])
+            if torch_layer_num < 17:
+                param.requires_grad = False
 
-    # dropout
-    for i in [17, 19, 21]:
-        model.features[i] = AddDropout(model.features[i], 0.2)
+        # circular padding
+        if circ_padding:
+            for i, layer in enumerate(model.features):
+                if isinstance(layer, torch.nn.Conv2d):
+                    model.features[i] = HorizCircPadding(layer)
 
-    return model
+        # dropout
+        for i in [17, 19, 21]:
+            model.features[i] = AddDropout(model.features[i], 0.2)
+
+        self.model = model
+
+    def forward(self, x):
+        out = self.model.features(x)
+        return out
 
 
 def correlation(overhead_embed, surface_embed):
@@ -303,7 +320,9 @@ def triplet_loss(distances, alpha=10.):
     return soft_margin_triplet_loss
 
 
-def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+
+    csv_path = Globals.dataset_paths[dataset]['train']
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
@@ -313,14 +332,14 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
     ])
 
     # Source the training and validation data
-    trainval_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Neural networks
-    surface_encoder = prep_model(circ_padding=False).to(device)
-    overhead_encoder = prep_model(circ_padding=True).to(device)
+    surface_encoder = FOV_DSM(circ_padding=False).to(device)
+    overhead_encoder = FOV_DSM(circ_padding=True).to(device)
     # if torch.cuda.device_count() > 1:
     #     surface_encoder = torch.nn.DataParallel(surface_encoder)
     #     overhead_encoder = torch.nn.DataParallel(overhead_encoder)
@@ -392,7 +411,9 @@ def train(csv_path = './data/train-19zl.csv', fov=360, val_quantity=1000, batch_
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
 
 
-def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=16):
+def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
+
+    csv_path = Globals.dataset_paths[dataset]['test']
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
@@ -402,13 +423,13 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=1
     ])
 
     # Source the test data
-    test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    test_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural networks
-    surface_encoder = prep_model(circ_padding=False).to(device)
-    overhead_encoder = prep_model(circ_padding=True).to(device)
+    surface_encoder = FOV_DSM(circ_padding=False).to(device)
+    overhead_encoder = FOV_DSM(circ_padding=True).to(device)
     surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
     overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
@@ -463,10 +484,26 @@ def test(csv_path = './data/val-19zl.csv', fov=360, batch_size=64, num_workers=1
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 if __name__ == '__main__':
-    fov = 360
-    if len(sys.argv) == 3:
-        fov = float(sys.argv[2])
-    if len(sys.argv) < 2 or sys.argv[1]=='train':
-        train(fov=fov)
-    elif sys.argv[1]=='test':
-        test(fov=fov)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode',
+                        default='train',
+                        choices=['train', 'test'],
+                        nargs=1,
+                        help='Run mode. [Default = train]')
+    parser.add_argument('--dataset',
+                        default='cvusa',
+                        choices=['cvusa', 'witw'],
+                        nargs=1,
+                        help='Dataset to use. [Default = cvusa]')
+    parser.add_argument('--fov',
+                        type=int,
+                        default=360,
+                        choices=[360, 180, 90, 70],
+                        nargs=1,
+                        help='The field of view for cropping street level images. [Default = 360]')
+    args = parser.parse_args()
+    print(args)
+    if args.mode == 'train':
+        train(dataset=args.dataset, fov=args.fov)
+    elif args.mode == 'test':
+        test(dataset=args.dataset, fov=args.fov)
