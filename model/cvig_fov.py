@@ -517,18 +517,15 @@ if __name__ == '__main__':
     parser.add_argument('--mode',
                         default='train',
                         choices=['train', 'test'],
-                        nargs=1,
                         help='Run mode. [Default = train]')
     parser.add_argument('--dataset',
                         default='cvusa',
                         choices=['cvusa', 'witw'],
-                        nargs=1,
                         help='Dataset to use. [Default = cvusa]')
     parser.add_argument('--fov',
                         type=int,
                         default=360,
                         choices=[360, 180, 90, 70],
-                        nargs=1,
                         help='The field of view for cropping street level images. [Default = 360]')
     args = parser.parse_args()
     print(args)
