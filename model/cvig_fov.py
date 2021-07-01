@@ -126,6 +126,34 @@ class ImageNormalization(object):
             data[key] = self.norm(data[key] / 255.)
         return data
 
+def bilinear_interpolate(im, x, y):
+    # https://stackoverflow.com/a/12729229
+
+    assert x.shape == y.shape
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    x0 = np.floor(x).astype(int)
+    x1 = x0 + 1
+    y0 = np.floor(y).astype(int)
+    y1 = y0 + 1
+
+    x0 = np.clip(x0, 0, im.shape[2]-1);
+    x1 = np.clip(x1, 0, im.shape[2]-1);
+    y0 = np.clip(y0, 0, im.shape[1]-1);
+    y1 = np.clip(y1, 0, im.shape[1]-1);
+
+    Ia = im[:, y0, x0 ]
+    Ib = im[:, y1, x0 ]
+    Ic = im[:, y0, x1 ]
+    Id = im[:, y1, x1 ]
+
+    wa = torch.FloatTensor(((x1-x) * (y1-y)).reshape(1, *x.shape))
+    wb = torch.FloatTensor(((x1-x) * (y-y0)).reshape(1, *x.shape))
+    wc = torch.FloatTensor(((x-x0) * (y1-y)).reshape(1, *x.shape))
+    wd = torch.FloatTensor(((x-x0) * (y-y0)).reshape(1, *x.shape))
+
+    return wa*Ia + wb*Ib + wc*Ic + wd*Id
 
 class PolarTransform(object):
     """
@@ -143,10 +171,11 @@ class PolarTransform(object):
             2 * math.pi * xx / w_s)
         xx_o = (s_o/2) - (s_o/2) * (h_s - 1 - yy)/h_s * np.sin(
             2 * math.pi * xx / w_s)
-        yy_o = np.floor(yy_o)
-        xx_o = np.floor(xx_o)
-        transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][
-            :, yy_o.flatten(), xx_o.flatten()]
+        #yy_o = np.floor(yy_o)
+        #xx_o = np.floor(xx_o)
+        #transf_overhead[:, yy.flatten(), xx.flatten()] = data['overhead'][
+        #    :, yy_o.flatten(), xx_o.flatten()]
+        transf_overhead = bilinear_interpolate(data['overhead'], xx_o, yy_o)
 
         data['polar'] = transf_overhead
         return data
@@ -320,7 +349,7 @@ def triplet_loss(distances, alpha=10.):
     return soft_margin_triplet_loss
 
 
-def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=12, num_epochs=999999):
 
     csv_path = Globals.dataset_paths[dataset]['train']
 
@@ -379,8 +408,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
                 with torch.set_grad_enabled(phase == 'train'):
 
                     # Forward and loss (train and val)
-                    surface_embed = surface_encoder.features(surface)
-                    overhead_embed = overhead_encoder.features(overhead)
+                    surface_embed = surface_encoder(surface)
+                    overhead_embed = overhead_encoder(overhead)
 
                     orientation_estimate = correlation(overhead_embed, surface_embed)
                     overhead_cropped = crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
@@ -443,8 +472,8 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
         overhead = data['polar'].to(device)
 
         with torch.set_grad_enabled(False):
-            surface_embed_part = surface_encoder.features(surface)
-            overhead_embed_part = overhead_encoder.features(overhead)
+            surface_embed_part = surface_encoder(surface)
+            overhead_embed_part = overhead_encoder(overhead)
 
             if surface_embed is None:
                 surface_embed = surface_embed_part
