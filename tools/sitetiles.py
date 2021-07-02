@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import os
+import sys
 import csv
 import json
 import tqdm
@@ -8,6 +9,8 @@ import numpy as np
 import pandas as pd
 from osgeo import osr
 from osgeo import gdal
+
+gdal.SetConfigOption('GDAL_PAM_ENABLED', 'NO')
 
 names = [
     '01_rio',
@@ -114,6 +117,8 @@ def annotate_dataframe(df):
     df['overhead_satellite'] = np.select(satellite_conditions,
                                          satellite_names,
                                          default='NotSpecified')
+    df['surface_path'] = 'surface/' + df['id'] + '.jpg'
+    df['overhead_path'] = 'overhead/' + df['id'] + '.jpg'
 
 
 def download(df, out_dir='/local_data/geoloc/sat/photos'):
@@ -170,9 +175,9 @@ def clip(dframe, edge=225., max_out=None,
 
 if __name__ == '__main__':
     json_dir = '/local_data/geoloc/terrestrial/metadata'
-    csv_path = '/local_data/geoloc/dataset.csv'
+    csv_path = '/local_data/geoloc/dataset/dataset.csv'
 
-    if True: # JSON METADATA -> CSV FILE
+    if 'csv' in sys.argv[1:]: # JSON METADATA -> CSV FILE
         dfs = []
         for aoi in range(1,1+11):
             path = os.path.join(json_dir, names[aoi-1], 'metadata.json')
@@ -194,7 +199,7 @@ if __name__ == '__main__':
 
         df.to_csv(csv_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
 
-    if True: # CSV FILE -> DATASET
+    if 'dataset' in sys.argv[1:]: # CSV FILE -> DATASET
         df = csv_to_dataframe(csv_path)
         # download(df)
-        # clip(df)
+        clip(df)

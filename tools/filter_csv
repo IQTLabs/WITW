@@ -5,7 +5,7 @@
 # Arguments:
 # 1 CSV file input
 # 2 CSV file output
-# 3 List of IDs to retain or remove
+# 3 List of IDs to retain or remove (must be sorted)
 # 4 "retain" or "remove"
 
 csv_input=$1
@@ -27,8 +27,8 @@ while IFS= read -r line; do
 	first_line=false
     else
 	id=$(echo $line | cut -d"," -f"$id_column" | sed s/\"//g)
-	id_count=$(grep $id $id_list)
-	if [[ ( $task == "retain" && id_count -gt 0 ) || ( $task == "remove" && id_count -eq 0 ) ]]; then
+	id_look=$(look -b $id $id_list | head -n 1)
+	if [[ ( $task == "retain" && $id_look == $id ) || ( $task == "remove" && $id_look != $id ) ]]; then
 	    echo $line >> $csv_output
 	fi
     fi
