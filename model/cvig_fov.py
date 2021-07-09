@@ -24,10 +24,11 @@ class Globals:
             'test': './data/val-19zl.csv'
         },
         'witw': {
-            'train':'',
-            'test':''
+            'train':'./data2/train.csv',
+            'test':'./data2/test.csv'
         }
     }
+
 
 class ImagePairDataset(torch.utils.data.Dataset):
     """
@@ -126,6 +127,7 @@ class ImageNormalization(object):
             data[key] = self.norm(data[key] / 255.)
         return data
 
+
 def bilinear_interpolate(im, x, y):
     # https://stackoverflow.com/a/12729229
 
@@ -154,6 +156,7 @@ def bilinear_interpolate(im, x, y):
     wd = torch.FloatTensor(((x-x0) * (y-y0)).reshape(1, *x.shape))
 
     return wa*Ia + wb*Ib + wc*Ic + wd*Id
+
 
 class PolarTransform(object):
     """
@@ -215,6 +218,7 @@ class AddDropout(torch.nn.Module):
         x = self.layer(x)
         x = self.postlayer(x)
         return x
+
 
 class FOV_DSM(torch.nn.Module):
     """
