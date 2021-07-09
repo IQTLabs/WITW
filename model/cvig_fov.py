@@ -24,8 +24,8 @@ class Globals:
             'test': './data/val-19zl.csv'
         },
         'witw': {
-            'train':'',
-            'test':''
+            'train':'./data2/train.csv',
+            'test':'./data2/test.csv'
         }
     }
 
