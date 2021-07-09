@@ -529,7 +529,8 @@ if __name__ == '__main__':
     parser.add_argument('--fov',
                         type=int,
                         default=360,
-                        choices=[360, 180, 90, 70],
+                        choices=range(6, 361),
+                        metavar='{6-360}',
                         help='The field of view for cropping street level images. [Default = 360]')
     args = parser.parse_args()
     print(args)
