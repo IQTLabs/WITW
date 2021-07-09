@@ -29,6 +29,19 @@ class Globals:
         }
     }
 
+    path_formats = {
+        'cvusa': {
+            'path_columns' : [0, 1],
+            'path_names' : ['overhead', 'surface'],
+            'header' : None
+        },
+        'witw': {
+            'path_columns' : [15, 16],
+            'path_names' : ['surface', 'overhead'],
+            'header' : 0
+        }
+    }
+
 
 class ImagePairDataset(torch.utils.data.Dataset):
     """
@@ -51,19 +64,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
         self.transform = transform
 
         # Read file paths and convert any relative file paths to absolute
-        path_formats = {
-            'cvusa': {
-                'path_columns' : [0, 1],
-                'path_names' : ['overhead', 'surface'],
-                'header' : None
-            },
-            'witw': {
-                'path_columns' : [15, 16],
-                'path_names' : ['surface', 'overhead'],
-                'header' : 0
-            }
-        }
-        path_format = path_formats[dataset]
+        path_format = Globals.path_formats[dataset]
         file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
         self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
 
