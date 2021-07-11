@@ -29,6 +29,19 @@ class Globals:
         }
     }
 
+    path_formats = {
+        'cvusa': {
+            'path_columns' : [0, 1],
+            'path_names' : ['overhead', 'surface'],
+            'header' : None
+        },
+        'witw': {
+            'path_columns' : [15, 16],
+            'path_names' : ['surface', 'overhead'],
+            'header' : 0
+        }
+    }
+
 
 class ImagePairDataset(torch.utils.data.Dataset):
     """
@@ -51,19 +64,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
         self.transform = transform
 
         # Read file paths and convert any relative file paths to absolute
-        path_formats = {
-            'cvusa': {
-                'path_columns' : [0, 1],
-                'path_names' : ['overhead', 'surface'],
-                'header' : None
-            },
-            'witw': {
-                'path_columns' : [15, 16],
-                'path_names' : ['surface', 'overhead'],
-                'header' : 0
-            }
-        }
-        path_format = path_formats[dataset]
+        path_format = Globals.path_formats[dataset]
         file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
         self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
 
@@ -86,27 +87,40 @@ class ImagePairDataset(torch.utils.data.Dataset):
         return data
 
 
-class ResizeCVUSA(object):
+class Resize(object):
     """
-    Resize the CVUSA images to fit model and crop to fov.
+    Resize the images to fit model and crop to fov.
     """
-    def __init__(self, fov=360, random_orientation=True):
+    def __init__(self, fov=360, panorama=True, random_orientation=True):
+        """
+        Arguments:
+        fov: field of view of output surface image, in degrees
+        panorama: True if input surface image is a 360-degree panorama;
+            False if input surface image has field of view equal to fov
+        random_orientation: For panoramic input, whether to randomly rotate
+            before cropping
+        """
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
+        self.panorama = panorama
         self.random_orientation = random_orientation
 
     def __call__(self, data):
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
-        if self.random_orientation:
-            start = torch.randint(0, Globals.surface_width_max, ())
-        else:
-            start = 0
-        end = start + self.surface_width
-        if end < Globals.surface_width_max:
-            data['surface'] = data['surface'][:,:,start:end]
-        else:
-            data['surface'] = torch.cat((data['surface'][:,:,start:], data[
-                'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
+        if self.panorama: # Surface image is a panorama
+            data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, Globals.surface_width_max))
+            if self.random_orientation:
+                start = torch.randint(0, Globals.surface_width_max, ())
+            else:
+                start = 0
+            end = start + self.surface_width
+            if end < Globals.surface_width_max:
+                data['surface'] = data['surface'][:,:,start:end]
+            else:
+                data['surface'] = torch.cat((data['surface'][:,:,start:], data[
+                    'surface'][:,:,:end - Globals.surface_width_max]), dim=2)
+        else: # Surface image is of width fov
+            data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, self.surface_width))
+
         data['overhead'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
         return data
 
@@ -359,7 +373,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        ResizeCVUSA(fov),
+        Resize(fov, dataset=='cvusa'),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -450,7 +464,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        ResizeCVUSA(fov),
+        Resize(fov, dataset=='cvusa'),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -529,7 +543,8 @@ if __name__ == '__main__':
     parser.add_argument('--fov',
                         type=int,
                         default=360,
-                        choices=[360, 180, 90, 70],
+                        choices=range(6, 361),
+                        metavar='{6-360}',
                         help='The field of view for cropping street level images. [Default = 360]')
     args = parser.parse_args()
     print(args)
