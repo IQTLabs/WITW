@@ -6,7 +6,8 @@ from osgeo import osr
 from osgeo import gdal
 
 sys.path.append('../../model')
-import cvig_fov
+import cvig_fov as cvig
+Globals = cvig.Globals
 
 names = [
     '01_rio',
@@ -23,33 +24,86 @@ names = [
 ]
 
 
-class SingleImageDataset(torch.utils.data.Dataset):
-    def __init__(self, photo_path, transform=None):
-        self.photo_path = photo_path
+class ImageDataset(torch.utils.data.Dataset):
+    def __init__(self, paths, transform=None):
+        self.paths = paths
         self.transform = transform
     def __len__(self):
-        return 1
+        return len(self.paths)
     def __getitem__(self, idx):
-        surface_raw = io.imread(self.photo_path)
-        surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
-        data = {'surface':surface}
+        raw = io.imread(self.paths[idx])
+        image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'image':image}
         if self.transform is not None:
             data = self.transform(data)
         return data
 
 
-class ImageDataset(torch.utils.data.Dataset):
-    def __init__(self, paths, transform=None):
-        self.sat_paths = sat_paths
-        self.transform = transform
-    def __len__(self):
-        return len(self.sat_paths)
-    def __getitem__(self, idx):
-        overhead_raw = io.imread(self.sat_paths[idx])
-        overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
-        data = {'overhead':overhead}
-        if self.transform is not None:
-            data = self.transform(data)
+class ResizeSurface(object):
+    """
+    Resize surface photo to fit model and crop to fov.
+    """
+    def __init__(self, fov=360, panorama=True, random_orientation=True):
+        """
+        Arguments:
+        fov: field of view of output surface image, in degrees
+        panorama: True if input surface image is a 360-degree panorama;
+            False if input surface image has field of view equal to fov
+        random_orientation: For panoramic input, whether to randomly rotate
+            before cropping
+        """
+        self.fov = fov
+        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
+        self.panorama = panorama
+        self.random_orientation = random_orientation
+
+    def __call__(self, data):
+        if self.panorama: # Surface image is a panorama
+            data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.surface_height_max, Globals.surface_width_max))
+            if self.random_orientation:
+                start = torch.randint(0, Globals.surface_width_max, ())
+            else:
+                start = 0
+            end = start + self.surface_width
+            if end < Globals.surface_width_max:
+                data['image'] = data['image'][:,:,start:end]
+            else:
+                data['image'] = torch.cat((data['image'][:,:,start:], data[
+                    'image'][:,:,:end - Globals.surface_width_max]), dim=2)
+        else: # Surface image is of width fov
+            data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.surface_height_max, self.surface_width))
+
+        return data
+
+
+class ResizeOverhead(object):
+    """
+    Resize overhead image tile to fit model and crop to fov.
+    """
+    def __call__(self, data):
+        data['image'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
+        return data
+
+
+class ImageNormalization(object):
+    """
+    Normalize image values to use with pretrained VGG model
+    """
+    def __init__(self):
+        self.norm = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+    def __call__(self, data):
+        data['image'] = self.norm(data['image'] / 255.)
+
+
+class PolarTransform(object):
+    def __init__(self):
+        self.transform = cvig.PolarTransform()
+    def __call__(self, data):
+        data_renamed = {'overhead':data['image']}
+        data = self.transform(data_renamed)
         return data
 
 
