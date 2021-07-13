@@ -44,35 +44,10 @@ class ResizeSurface(object):
     Resize surface photo to fit model and crop to fov.
     """
     def __init__(self, fov=360, panorama=True, random_orientation=True):
-        """
-        Arguments:
-        fov: field of view of output surface image, in degrees
-        panorama: True if input surface image is a 360-degree panorama;
-            False if input surface image has field of view equal to fov
-        random_orientation: For panoramic input, whether to randomly rotate
-            before cropping
-        """
-        self.fov = fov
-        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
-        self.panorama = panorama
-        self.random_orientation = random_orientation
-
+        self.transform = cvig.Resize(fov, panorama, random_orientation)
     def __call__(self, data):
-        if self.panorama: # Surface image is a panorama
-            data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.surface_height_max, Globals.surface_width_max))
-            if self.random_orientation:
-                start = torch.randint(0, Globals.surface_width_max, ())
-            else:
-                start = 0
-            end = start + self.surface_width
-            if end < Globals.surface_width_max:
-                data['image'] = data['image'][:,:,start:end]
-            else:
-                data['image'] = torch.cat((data['image'][:,:,start:], data[
-                    'image'][:,:,:end - Globals.surface_width_max]), dim=2)
-        else: # Surface image is of width fov
-            data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.surface_height_max, self.surface_width))
-
+        data_renamed = {'surface':data['image'], 'overhead':None}
+        data = self.transform(data_renamed)
         return data
 
 
@@ -113,8 +88,15 @@ def sweep(aoi, bounds, edge, offset, sat_dir, photo_path, csv_path, temp_dir):
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
     sat_file = gdal.Open(sat_path)
 
-    # 
-    
+    # Specify transformations
+    surface_transform = torchvision.transforms.Compose([
+        Resize(fov, False),
+        ImageNormalization(),
+        PolarTransform()
+    ])
+
+    # Load models
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
