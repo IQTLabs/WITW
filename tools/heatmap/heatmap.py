@@ -88,6 +88,8 @@ class PolarTransform(object):
 
 def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_dir):
 
+    # 
+
     # Load satellite strip
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
     sat_file = gdal.Open(sat_path)
@@ -115,6 +117,13 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
     overhead_encoder.load_state_dict(torch.load('../../model/fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
     overhead_encoder.eval()
+
+
+def layer(aoi, bounds, sat_dir, layer_path):
+    sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
+    sat_file = gdal.Open(sat_path)
+    window = [bounds[0], bounds[3], bounds[2], bounds[1]]
+    gdal.Translate(layer_path, sat_file, projWin=window)
 
 
 if __name__ == '__main__':
@@ -160,3 +169,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     sweep(args.aoi, args.bounds, args.edge, args.offset, args.fov,
           args.satdir, args.photopath, args.csvpath, args.tempdir)
+    layer(args.aoi, args.bounds, args.satdir, args.layerpath)
