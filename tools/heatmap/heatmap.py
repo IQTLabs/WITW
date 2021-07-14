@@ -116,10 +116,11 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
     center_eastings = []
     center_northings = []
     windows = []
-    for easting in np.arange(bounds[0], bounds[2], offset):
-        for northing in np.arange(bounds[3], bounds[1], -offset):
-            center_eastings.append(easting + edge / 2.)
-            center_northings.append(northing - edge / 2.)
+    e2 = edge / 2.
+    for easting in np.arange(bounds[0] - e2, bounds[2] - e2, offset):
+        for northing in np.arange(bounds[3] + e2, bounds[1] + e2, -offset):
+            center_eastings.append(easting + e2)
+            center_northings.append(northing - e2)
             windows.append([easting, northing, easting + edge, northing - edge])
 
     # Load satellite strip
@@ -203,7 +204,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--bounds',
                         type=float,
                         nargs=4,
-                        default=(447665.8, 5411486.8, 448184.8, 5411814.8),
+                        default=(447665.8, 5411329.8, 448184.8, 5411814.8),
                         metavar=('left', 'bottom', 'right', 'top'),
                         help='Bounds given as UTM coordinates in this order: min easting, min northing, max easting, max northing')
     parser.add_argument('-e', '--edge',
@@ -226,11 +227,15 @@ if __name__ == '__main__':
                         help='Path to surface photo to analyze')
     parser.add_argument('-c', '--csvpath',
                         default='./geomatch.csv',
-                        help='Output CSV file path')
+                        help='Path to output CSV file path')
     parser.add_argument('-l', '--layerpath',
                         default='./satlayer.tiff',
-                        help='Output cropped satellite image')
+                        help='Path to output cropped satellite image')
+    parser.add_argument('-i', '--image',
+                        action='store_true',
+                        help='Flag to output cropped satellite image')
     args = parser.parse_args()
     sweep(args.aoi, args.bounds, args.edge, args.offset, args.fov,
           args.satdir, args.photopath, args.csvpath)
-    #layer(args.aoi, args.bounds, args.satdir, args.layerpath)
+    if args.image:
+        layer(args.aoi, args.bounds, args.satdir, args.layerpath)
