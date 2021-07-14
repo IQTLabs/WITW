@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tqdm
 import argparse
 import numpy as np
 import torch
@@ -37,6 +38,24 @@ class ImageDataset(torch.utils.data.Dataset):
         return len(self.paths)
     def __getitem__(self, idx):
         raw = io.imread(self.paths[idx])
+        image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'image':image}
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
+
+
+class TileDataset(torch.utils.data.Dataset):
+    def __init__(self, source, windows, transform=None):
+        self.source = source
+        self.windows = windows
+        self.transform = transform
+    def __len__(self):
+        return len(self.windows)
+    def __getitem__(self, idx):
+        ds = gdal.Translate('/vsimem/tile%s.jpg' % str(idx),
+                            self.source, projWin=self.windows[idx])
+        raw = ds.ReadAsArray()
         image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
         data = {'image':image}
         if self.transform is not None:
@@ -95,14 +114,10 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
     windows = []
     for easting in np.arange(bounds[0], bounds[2], offset):
         for northing in np.arange(bounds[3], bounds[1], -offset):
-            center_easting = easting + edge / 2.
-            center_northing = northing - edge / 2.
-            window = [easting, northing - edge, easting + edge, northing]
-            center_eastings.append(center_easting)
-            center_northings.append(center_northing)
-            windows.append(window)
-    print(center_eastings)
-    print(center_northings)
+            center_eastings.append(easting + edge / 2.)
+            center_northings.append(northing - edge / 2.)
+            windows.append([easting, northing,
+                            easting + edge, northing - edge])
 
     # Load satellite strip
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
@@ -121,8 +136,9 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
 
     # Load data
     surface_set = ImageDataset((photo_path,), surface_transform)
-    #surface_loader = torch.utils.data.DataLoader(surface_set, batch_size=1, shuffle=False, num_workers=1)
-    # OVERHEAD
+    overhead_set = TileDataset(sat_file, windows)
+    surface_loader = torch.utils.data.DataLoader(surface_set, batch_size=1, shuffle=False, num_workers=1)
+    overhead_loader = torch.utils.data.DataLoader(overhead_set, batch_size=64, shuffle=False, num_workers=1)
 
     # Load the neural networks
     surface_encoder = cvig.FOV_DSM(circ_padding=False).to(device)
@@ -131,6 +147,9 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
     overhead_encoder.load_state_dict(torch.load('../../model/fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
     overhead_encoder.eval()
+
+    for batch, data in enumerate(tqdm.tqdm(overhead_loader)):
+        overhead = data['polar'].to(device)
 
 
 def layer(aoi, bounds, sat_dir, layer_path):
@@ -183,4 +202,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     sweep(args.aoi, args.bounds, args.edge, args.offset, args.fov,
           args.satdir, args.photopath, args.csvpath, args.tempdir)
-    layer(args.aoi, args.bounds, args.satdir, args.layerpath)
+    #layer(args.aoi, args.bounds, args.satdir, args.layerpath)
