@@ -5,6 +5,7 @@ import sys
 import tqdm
 import argparse
 import numpy as np
+from skimage import io
 import torch
 import torchvision
 from osgeo import osr
@@ -53,10 +54,11 @@ class TileDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.windows)
     def __getitem__(self, idx):
-        ds = gdal.Translate('/vsimem/tile%s.jpg' % str(idx),
-                            self.source, projWin=self.windows[idx])
+        mem_path = '/vsimem/tile%s.jpg' % str(idx)
+        ds = gdal.Translate(mem_path, self.source, projWin=self.windows[idx])
         raw = ds.ReadAsArray()
-        image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
+        gdal.GetDriverByName('GTiff').Delete(mem_path)
+        image = torch.from_numpy(raw.astype(np.float32))
         data = {'image':image}
         if self.transform is not None:
             data = self.transform(data)
@@ -71,7 +73,7 @@ class ResizeSurface(object):
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
     def __call__(self, data):
-        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, self.surface_width))
+        data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.surface_height_max, self.surface_width))
         return data
 
 
@@ -80,7 +82,7 @@ class ResizeOverhead(object):
     Resize overhead image tile to fit model and crop to fov.
     """
     def __call__(self, data):
-        data['image'] = torchvision.transforms.functional.resize(data['overhead'], (Globals.overhead_size, Globals.overhead_size))
+        data['image'] = torchvision.transforms.functional.resize(data['image'], (Globals.overhead_size, Globals.overhead_size))
         return data
 
 
@@ -95,6 +97,7 @@ class ImageNormalization(object):
         )
     def __call__(self, data):
         data['image'] = self.norm(data['image'] / 255.)
+        return data
 
 
 class PolarTransform(object):
@@ -106,7 +109,7 @@ class PolarTransform(object):
         return data
 
 
-def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_dir):
+def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
 
     # Compute center and window for each satellite tile
     center_eastings = []
@@ -116,8 +119,7 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
         for northing in np.arange(bounds[3], bounds[1], -offset):
             center_eastings.append(easting + edge / 2.)
             center_northings.append(northing - edge / 2.)
-            windows.append([easting, northing,
-                            easting + edge, northing - edge])
+            windows.append([easting, northing, easting + edge, northing - edge])
 
     # Load satellite strip
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
@@ -136,8 +138,8 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
 
     # Load data
     surface_set = ImageDataset((photo_path,), surface_transform)
-    overhead_set = TileDataset(sat_file, windows)
-    surface_loader = torch.utils.data.DataLoader(surface_set, batch_size=1, shuffle=False, num_workers=1)
+    overhead_set = TileDataset(sat_file, windows, overhead_transform)
+    surface_batch = torch.unsqueeze(surface_set[0]['image'], dim=0).to(device)
     overhead_loader = torch.utils.data.DataLoader(overhead_set, batch_size=64, shuffle=False, num_workers=1)
 
     # Load the neural networks
@@ -148,8 +150,20 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
     surface_encoder.eval()
     overhead_encoder.eval()
 
+    # Surface photo's features
+    surface_embed = surface_encoder(surface_batch)
+
+    # Overhead images' features
     for batch, data in enumerate(tqdm.tqdm(overhead_loader)):
         overhead = data['polar'].to(device)
+
+        overhead_embed = None
+        with torch.set_grad_enabled(False):
+            overhead_embed_part = overhead_encoder(overhead)
+            if overhead_embed is None:
+                overhead_embed = overhead_embed_part
+            else:
+                overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
 
 
 def layer(aoi, bounds, sat_dir, layer_path):
@@ -196,10 +210,7 @@ if __name__ == '__main__':
     parser.add_argument('-l', '--layerpath',
                         default='./satlayer.tiff',
                         help='Output cropped satellite image')
-    parser.add_argument('-t', '--tempdir',
-                        default='/local_data/geoloc/sat/temp',
-                        help='Folder to hold temporary files')
     args = parser.parse_args()
     sweep(args.aoi, args.bounds, args.edge, args.offset, args.fov,
-          args.satdir, args.photopath, args.csvpath, args.tempdir)
+          args.satdir, args.photopath, args.csvpath)
     #layer(args.aoi, args.bounds, args.satdir, args.layerpath)
