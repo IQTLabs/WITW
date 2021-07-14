@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import argparse
+import torch
+import torchvision
 from osgeo import osr
 from osgeo import gdal
 
 sys.path.append('../../model')
 import cvig_fov as cvig
 Globals = cvig.Globals
+device = cvig.device
 
 names = [
     '01_rio',
@@ -94,12 +98,23 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_di
         ImageNormalization()
     ])
     overhead_transform = torchvision.transforms.Compose([
-        ResizeOverhead(fov),
+        ResizeOverhead(),
         ImageNormalization(),
         PolarTransform()
     ])
 
-    # Load models
+    # Load data
+    surface_set = ImageDataset((photo_path,), surface_transform)
+    #surface_loader = torch.utils.data.DataLoader(surface_set, batch_size=1, shuffle=False, num_workers=1)
+    # OVERHEAD
+
+    # Load the neural networks
+    surface_encoder = cvig.FOV_DSM(circ_padding=False).to(device)
+    overhead_encoder = cvig.FOV_DSM(circ_padding=True).to(device)
+    surface_encoder.load_state_dict(torch.load('../../model/fov_{}_surface_best.pth'.format(int(fov))))
+    overhead_encoder.load_state_dict(torch.load('../../model/fov_{}_overhead_best.pth'.format(int(fov))))
+    surface_encoder.eval()
+    overhead_encoder.eval()
 
 
 if __name__ == '__main__':
@@ -125,7 +140,7 @@ if __name__ == '__main__':
                         help='Offset between centers of adjacent satellite imagery tiles [m]')
     parser.add_argument('-f', '--fov',
                         type=int,
-                        default=360,
+                        default=70,
                         help='Field of view assumed for photo (deg, rounded)')
     parser.add_argument('-s', '--satdir',
                         default='/local_data/geoloc/sat/utm',
@@ -143,4 +158,5 @@ if __name__ == '__main__':
                         default='/local_data/geoloc/sat/temp',
                         help='Folder to hold temporary files')
     args = parser.parse_args()
-    sweep(args.a, args.b, args.e, args.o, args.f, args.s, args.p, args.c, args.t)
+    sweep(args.aoi, args.bounds, args.edge, args.offset, args.fov,
+          args.satdir, args.photopath, args.csvpath, args.tempdir)
