@@ -82,7 +82,7 @@ class PolarTransform(object):
         return data
 
 
-def sweep(aoi, bounds, edge, offset, sat_dir, photo_path, csv_path, temp_dir):
+def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_dir):
 
     # Load satellite strip
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
@@ -90,7 +90,11 @@ def sweep(aoi, bounds, edge, offset, sat_dir, photo_path, csv_path, temp_dir):
 
     # Specify transformations
     surface_transform = torchvision.transforms.Compose([
-        Resize(fov, False),
+        ResizeSurface(fov),
+        ImageNormalization()
+    ])
+    overhead_transform = torchvision.transforms.Compose([
+        ResizeOverhead(fov),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -119,6 +123,10 @@ if __name__ == '__main__':
                         type=float,
                         default=56.25,
                         help='Offset between centers of adjacent satellite imagery tiles [m]')
+    parser.add_argument('-f', '--fov',
+                        type=int,
+                        default=360,
+                        help='Field of view assumed for photo (deg, rounded)')
     parser.add_argument('-s', '--satdir',
                         default='/local_data/geoloc/sat/utm',
                         help='Folder containing satellite images')
@@ -135,4 +143,4 @@ if __name__ == '__main__':
                         default='/local_data/geoloc/sat/temp',
                         help='Folder to hold temporary files')
     args = parser.parse_args()
-    sweep(args.a, args.b, args.e, args.o, args.s, args.p, args.c, args.t)
+    sweep(args.a, args.b, args.e, args.o, args.f, args.s, args.p, args.c, args.t)
