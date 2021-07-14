@@ -3,6 +3,7 @@
 import os
 import sys
 import argparse
+import numpy as np
 import torch
 import torchvision
 from osgeo import osr
@@ -88,7 +89,20 @@ class PolarTransform(object):
 
 def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path, temp_dir):
 
-    # 
+    # Compute center and window for each satellite tile
+    center_eastings = []
+    center_northings = []
+    windows = []
+    for easting in np.arange(bounds[0], bounds[2], offset):
+        for northing in np.arange(bounds[3], bounds[1], -offset):
+            center_easting = easting + edge / 2.
+            center_northing = northing - edge / 2.
+            window = [easting, northing - edge, easting + edge, northing]
+            center_eastings.append(center_easting)
+            center_northings.append(center_northing)
+            windows.append(window)
+    print(center_eastings)
+    print(center_northings)
 
     # Load satellite strip
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
