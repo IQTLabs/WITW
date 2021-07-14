@@ -5,6 +5,7 @@ import sys
 import tqdm
 import argparse
 import numpy as np
+import pandas as pd
 from skimage import io
 import torch
 import torchvision
@@ -154,15 +155,16 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
     surface_embed = surface_encoder(surface_batch)
 
     # Overhead images' features
+    torch.set_grad_enabled(False)
     overhead_embed = None
     for batch, data in enumerate(tqdm.tqdm(overhead_loader)):
         overhead = data['polar'].to(device)
-        with torch.set_grad_enabled(False):
-            overhead_embed_part = overhead_encoder(overhead)
-            if overhead_embed is None:
-                overhead_embed = overhead_embed_part
-            else:
-                overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
+        #with torch.set_grad_enabled(False):
+        overhead_embed_part = overhead_encoder(overhead)
+        if overhead_embed is None:
+            overhead_embed = overhead_embed_part
+        else:
+            overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
 
     # Calculate score for each overhead image
     output_width_max = 64
@@ -172,9 +174,17 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
     distances = cvig.l2_distance(overhead_cropped_all, surface_embed)
     distances = torch.squeeze(distances)
     scores = torch.exp(10. * (1. - distances))
-    print(orientations)
-    print(distances)
-    print(scores)
+
+    # Save information to disk
+    df = pd.DataFrame({
+        'x': center_eastings,
+        'y': center_northings,
+        'orientation': orientations.cpu().numpy(),
+        'dissimilarity': distances.cpu().numpy(),
+        'score': scores.cpu().numpy()
+    })
+    df.to_csv(csv_path, index=False)
+
 
 def layer(aoi, bounds, sat_dir, layer_path):
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
