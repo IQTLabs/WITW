@@ -43,11 +43,11 @@ class ResizeSurface(object):
     """
     Resize surface photo to fit model and crop to fov.
     """
-    def __init__(self, fov=360, panorama=True, random_orientation=True):
-        self.transform = cvig.Resize(fov, panorama, random_orientation)
+    def __init__(self, fov=360):
+        self.fov = fov
+        self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
     def __call__(self, data):
-        data_renamed = {'surface':data['image'], 'overhead':None}
-        data = self.transform(data_renamed)
+        data['surface'] = torchvision.transforms.functional.resize(data['surface'], (Globals.surface_height_max, self.surface_width))
         return data
 
 
