@@ -154,10 +154,9 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
     surface_embed = surface_encoder(surface_batch)
 
     # Overhead images' features
+    overhead_embed = None
     for batch, data in enumerate(tqdm.tqdm(overhead_loader)):
         overhead = data['polar'].to(device)
-
-        overhead_embed = None
         with torch.set_grad_enabled(False):
             overhead_embed_part = overhead_encoder(overhead)
             if overhead_embed is None:
@@ -165,6 +164,17 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
             else:
                 overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
 
+    # Calculate score for each overhead image
+    output_width_max = 64
+    orientation_estimate = cvig.correlation(overhead_embed, surface_embed)
+    orientations = torch.squeeze(orientation_estimate) * 360 / output_width_max
+    overhead_cropped_all = cvig.crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
+    distances = cvig.l2_distance(overhead_cropped_all, surface_embed)
+    distances = torch.squeeze(distances)
+    scores = torch.exp(10. * (1. - distances))
+    print(orientations)
+    print(distances)
+    print(scores)
 
 def layer(aoi, bounds, sat_dir, layer_path):
     sat_path = os.path.join(sat_dir, names[aoi-1] + '.tif')
@@ -183,7 +193,7 @@ if __name__ == '__main__':
     parser.add_argument('-b', '--bounds',
                         type=float,
                         nargs=4,
-                        default=(447665.8, 5411563.0, 448184.8, 5411814.8),
+                        default=(447665.8, 5411486.8, 448184.8, 5411814.8),
                         metavar=('left', 'bottom', 'right', 'top'),
                         help='Bounds given as UTM coordinates in this order: min easting, min northing, max easting, max northing')
     parser.add_argument('-e', '--edge',
