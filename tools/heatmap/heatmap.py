@@ -170,7 +170,7 @@ def sweep(aoi, bounds, edge, offset, fov, sat_dir, photo_path, csv_path):
     # Calculate score for each overhead image
     output_width_max = 64
     orientation_estimate = cvig.correlation(overhead_embed, surface_embed)
-    orientations = torch.squeeze(orientation_estimate) * 360 / output_width_max
+    orientations = torch.squeeze(orientation_estimate) * 360 / output_width_max - 180
     overhead_cropped_all = cvig.crop_overhead(overhead_embed, orientation_estimate, surface_embed.shape[3])
     distances = cvig.l2_distance(overhead_cropped_all, surface_embed)
     distances = torch.squeeze(distances)
