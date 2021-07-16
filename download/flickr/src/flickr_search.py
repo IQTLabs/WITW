@@ -12,6 +12,8 @@ from pprint import pprint
 from tqdm import tqdm
 
 from config import parse_config
+# from metadata import *
+# from secrets import *
 
 PRIVACY_FILTER = 1 #only public metadata
 CONTENT_TYPE = 1 #only metadata
@@ -24,7 +26,6 @@ def get_aws_access_key_id():
         with open('/run/secrets/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             aki = lines[1].strip().split('=')[1]
-            print(f'{aki}')
             return aki
     except IOError as err:
         print(f'{err}')
@@ -34,7 +35,6 @@ def get_aws_secret_access_key():
         with open('/run/secrets/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             sak = lines[2].strip().split('=')[1]
-            print(f'{sak}')
             return sak
     except IOError:
         return None
@@ -143,19 +143,25 @@ def write_urls(urls, cfg):
         if not os.path.exists(directory):
             os.mkdir(directory)
 
-        file_path=os.path.join(directory, 'urls.txt')
+        file_path=os.path.join(directory, 'urls')
         if cfg['cities'][key]['download'] != 'photos':
-            with open(file_path, 'w') as f:
-                for url in urls[city]:
-                    f.write(f'{url}\n')
+            print(f"printing {len(urls[city])} urls for city {city} at {file_path}")
+            try:
+                with open(file_path, 'w') as f:
+                    for url in urls[city]:
+                        f.write(f'{url}\n')
+                    f.flush()
+                    f.close()
+            except Exception as err:
+                print(f"error: {err} opening file {file_path}")                  
 
 def get_metadata(cfg):
     metadata = None
-    metadata = read_metadata(cfg)
+    urls = get_known_urls(cfg)
+    metadata, urls = read_metadata(cfg, urls)
     if cfg['refresh_metadata']:
         print('fetching metadata')
-        urls = get_known_urls(cfg)
-        metadata = fetch_metadata(cfg, metadata, urls)
+        metadata,urls = fetch_metadata(cfg, metadata, urls)
         print('writing metadata')
         write_metadata(metadata, cfg)
         print('writing url list')
@@ -237,26 +243,22 @@ def fetch_metadata(cfg, metadata, urls):
         # metadata[key]['image_count'] = total
         # print(f"length of inserted ids for {key}: {len(inserted_ids)}")
         # print(f"total for {key}: {len(metadata[key]['images'])}")
-    return metadata
+    return metadata, urls
 
 def write_metadata(metadata, cfg):
     for key in metadata:
         city=key.replace(" ", "_")
-        print(f'{city}')
         directory=os.path.join('data',city)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
         file_path=os.path.join(directory,'metadata.json')
         dl_flag =cfg['cities'][key]['download'] 
-        print(f'{dl_flag}')
-        print(f'{file_path}')
-        print(f'{metadata[key]}')
         if cfg['cities'][key]['download'] != 'photos':
             with open(file_path, 'w') as f:
                 json.dump(metadata[key], f, indent=2)
 
-def read_metadata(cfg):
+def read_metadata(cfg, urls):
     metadata = {}
     for key in cfg['cities']:
         city=key.replace(" ", "_")
@@ -264,16 +266,18 @@ def read_metadata(cfg):
         if os.path.exists(file_path):
             with open(file_path, 'r') as f:
                 loaded = json.load(f)
+                for img in loaded['images']:
+                    if cfg["url_field"] in img and not img[cfg["url_field"]] in urls:
+                        urls[city].add(img[cfg["url_field"]])
                 metadata[city]= loaded
 
-    return metadata
+    return metadata, urls
 
 def download_photos(metadata, cfg):
     aki = get_aws_access_key_id()
     sak = get_aws_secret_access_key()
     st = get_aws_session_token()
 
-    print(f'{aki}::::{sak}::::{st}')
     client = boto3.client('s3', region_name='us-east-2', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
     lambda_client = boto3.client('lambda', region_name='us-east-2', aws_access_key_id=aki, aws_secret_access_key=sak, aws_session_token=st)
 
@@ -285,6 +289,15 @@ def download_photos(metadata, cfg):
         directory=f'/data/{city}'
         if not os.path.exists(directory):
             os.mkdir(directory)
+
+        file_path=os.path.join(directory,'/metadata.json')
+        print(f'uploading metadata for {city} from file {file_path}')
+        if os.path.exists(file_path):
+            try:
+                client.upload_file(file_path, Bucket=BUCKET, Key=f'{city}/metadata.json')
+            except botocore.exceptions.ClientError as cerr:
+                print(f'error uploading metadata file for {city}')
+                print(f'{cerr}')
 
         photo_list = metadata[key]['images']
         dl_limit = cfg['cities'][key]['download_limit']
@@ -304,15 +317,15 @@ def download_photos(metadata, cfg):
                 # chunks=bytearray()
                 # with open(file_path, 'wb') as download_file:
                 #     try:
-                #         with httpx.stream("GET", url) as response:
+                        with httpx.stream("GET", url) as response:
 
-                #             with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
-                #                 num_bytes_downloaded = response.num_bytes_downloaded
-                #                 for chunk in response.iter_bytes():
-                #                     chunks.extend(chunk)
-                #                     download_file.write(chunk)
-                #                     progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
-                #                     num_bytes_downloaded = response.num_bytes_downloaded
+                            with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                                num_bytes_downloaded = response.num_bytes_downloaded
+                                for chunk in response.iter_bytes():
+                                    chunks.extend(chunk)
+                                    download_file.write(chunk)
+                                    progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
+                                    num_bytes_downloaded = response.num_bytes_downloaded
                 #     except httpx.ReadTimeout as err:
                 #         print(f'error downloading file {city}/{file_name}')
 
@@ -322,6 +335,9 @@ def download_photos(metadata, cfg):
                 #     print(f'error uploading file {city}/{file_name}')
                 #     print(f'{cerr}')
 
+        file_path=os.path.join(directory,'metadata.json')
+        if os.path.exists(file_path):
+            client.upload_file(file_path, Bucket=BUCKET, Key=f'{city }/metadata.json')
 
 def main(config_file):
     config = parse_config(config_file)
