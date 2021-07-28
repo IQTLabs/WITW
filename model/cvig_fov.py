@@ -9,9 +9,11 @@ import tqdm
 import numpy as np
 import pandas as pd
 from skimage import io
+from datetime import datetime 
 
 import torch
 import torchvision
+from torch.utils.tensorboard import SummaryWriter
 
 class Globals:
     surface_height_max = 128
@@ -140,7 +142,11 @@ class ImageNormalization(object):
         for key in self.keys:
             data[key] = self.norm(data[key] / 255.)
         return data
-
+        
+def inverse_normalize(tensor, mean, std):
+    for t, m, s in zip(tensor, mean, std):
+        t.mul_(s).add_(m)
+    return tensor
 
 def bilinear_interpolate(im, x, y):
     # https://stackoverflow.com/a/12729229
@@ -154,10 +160,10 @@ def bilinear_interpolate(im, x, y):
     y0 = np.floor(y).astype(int)
     y1 = y0 + 1
 
-    x0 = np.clip(x0, 0, im.shape[2]-1);
-    x1 = np.clip(x1, 0, im.shape[2]-1);
-    y0 = np.clip(y0, 0, im.shape[1]-1);
-    y1 = np.clip(y1, 0, im.shape[1]-1);
+    x0 = np.clip(x0, 0, im.shape[2]-1)
+    x1 = np.clip(x1, 0, im.shape[2]-1)
+    y0 = np.clip(y0, 0, im.shape[1]-1)
+    y1 = np.clip(y1, 0, im.shape[1]-1)
 
     Ia = im[:, y0, x0 ]
     Ib = im[:, y1, x0 ]
@@ -369,6 +375,8 @@ def triplet_loss(distances, alpha=10.):
 
 def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=12, num_epochs=999999):
 
+    writer = SummaryWriter('runs/{}/train/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
+
     csv_path = Globals.dataset_paths[dataset]['train']
 
     # Data modification and augmentation
@@ -448,7 +456,16 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
                 print('epoch = {} {}, iter = {}, count = {}, loss = {:.4f}'.format(epoch+1, phase, batch, running_count, loss))
 
+                writer.add_scalar('{} loss'.format(phase),
+                            running_loss / running_count,
+                            epoch * len(loader) + batch)
+
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
+        
+        labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
+        label_header = ['idx', 'type']
+        original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        writer.add_embedding(torch.cat((surface_embed.view(surface_embed.shape[0], -1),overhead_embed.view(overhead_embed.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
 
         # Save weights if this is the lowest observed validation loss
         if best_loss is None or running_loss / running_count < best_loss:
@@ -456,9 +473,11 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
             best_loss = running_loss / running_count
             torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
             torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
+            writer.add_text('best_loss', 'new best loss: {}, epoch: {}'.format(best_loss, epoch+1), epoch * len(loader) + batch)
 
+def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
-def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
+    writer = SummaryWriter('runs/{}/test/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
 
     csv_path = Globals.dataset_paths[dataset]['test']
 
@@ -500,6 +519,11 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
                 surface_embed = torch.cat((surface_embed, surface_embed_part), dim=0)
                 overhead_embed = torch.cat((overhead_embed, overhead_embed_part), dim=0)
 
+    labels = [[i,0] for i in list(range(surface_embed_part.shape[0]))] + [[i,1] for i in list(range(overhead_embed_part.shape[0]))]
+    label_header = ['idx', 'type']
+    original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_embed_part.view(overhead_embed_part.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
+    
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
@@ -527,6 +551,13 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=16):
     print('Med. Rank: {:.2f}'.format(median))
     print('Locations: {}'.format(count))
 
+    writer.add_text('top_1', 'Top  1: {:.2f}%'.format(top_one))
+    writer.add_text('top_5', 'Top  5: {:.2f}%'.format(top_five))
+    writer.add_text('top_10', 'Top 10: {:.2f}%'.format(top_ten))
+    writer.add_text('top_1%', 'Top 1%: {:.2f}%'.format(top_percent))
+    writer.add_text('avg_rank', 'Avg. Rank: {:.2f}'.format(mean))
+    writer.add_text('med_rank', 'Med. Rank: {:.2f}'.format(median))
+    writer.add_text('locations', 'Locations: {}'.format(count))
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
