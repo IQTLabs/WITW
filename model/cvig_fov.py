@@ -6,6 +6,7 @@ import sys
 import math
 import time
 import tqdm
+import random
 import numpy as np
 import pandas as pd
 from skimage import io
@@ -100,7 +101,7 @@ class GlobalMining(object):
         self.mining_pool_ready = False
 
     def update_mining_pool(self): 
-        mining_pool_idxs = random.sample(range(self.dataset_len), self.mining_pool_size)
+        mining_pool_idxs = np.array(random.sample(range(self.dataset_len), self.mining_pool_size))
         overhead_mining_pool = self.global_overhead_embed[mining_pool_idxs, :]
         for idx in range(self.dataset_len):
             this_surface_embed = torch.unsqueeze(self.global_surface_embed[idx, :], 0)
@@ -108,7 +109,7 @@ class GlobalMining(object):
             overhead_pool_cropped = crop_overhead(overhead_mining_pool, orientation_estimate, this_surface_embed.shape[3])
             distances = l2_distance(overhead_pool_cropped, this_surface_embed)
             distances = torch.squeeze(distances)
-            self.mining_pool[idx] = mining_pool_idx[torch.argsort(distances, dim=0)[-self.instance_pool_size:]]
+            self.mining_pool[idx] = mining_pool_idxs[torch.argsort(distances, dim=0).cpu()[-self.instance_pool_size:]]
         self.mining_pool_ready = True
         
 
