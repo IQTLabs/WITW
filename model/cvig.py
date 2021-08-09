@@ -10,6 +10,8 @@ import sys
 import glob
 import math
 import time
+import tqdm
+import argparse
 import numpy as np
 import pandas as pd
 from skimage import io
@@ -20,6 +22,74 @@ import torch.nn.functional as F
 import torchvision
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+class Globals:
+    dataset_paths = {
+        'cvusa': {
+            'train': './data/train-19zl.csv',
+            'test': './data/val-19zl.csv'
+        },
+        'witw': {
+            'train':'./data2/train_scenes.csv',
+            'test':'./data2/test_scenes.csv'
+        }
+    }
+    path_formats = {
+        'cvusa': {
+            'path_columns' : [0, 1],
+            'path_names' : ['overhead', 'surface'],
+            'header' : None
+        },
+        'witw': {
+            'path_columns' : [15, 16],
+            'path_names' : ['surface', 'overhead'],
+            'header' : 0
+        }
+    }
+
+
+class ImagePairDataset(torch.utils.data.Dataset):
+    """
+    Load pairs of images (one surface and one overhead)
+    from paths specified in a CSV file.
+    """
+    def __init__(self, dataset, csv_path, base_path=None, transform=None):
+        """
+        Arguments:
+        csv_path: Path to CSV file containing image paths.  File format:
+            surface_file.tif,overhead_file.tif
+        base_path: Starting folder for any relative file paths,
+            if different from the folder containing the CSV file.
+        """
+        self.csv_path = csv_path
+        if base_path is not None:
+            self.base_path = base_path
+        else:
+            self.base_path = os.path.dirname(csv_path)
+        self.transform = transform
+
+        # Read file paths and convert any relative file paths to absolute
+        path_format = Globals.path_formats[dataset]
+        file_paths = pd.read_csv(self.csv_path, header=path_format['header'], names=path_format['path_names'], usecols=path_format['path_columns'])
+        self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
+
+    def __len__(self):
+        return len(self.file_paths)
+
+    def __getitem__(self, idx):
+        # Load data
+        surface_path = self.file_paths.iloc[idx]['surface']
+        overhead_path = self.file_paths.iloc[idx]['overhead']
+        surface_raw = io.imread(surface_path)
+        overhead_raw = io.imread(overhead_path)
+        surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
+        overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
+        data = {'surface':surface, 'overhead':overhead}
+
+        # Transform data
+        if self.transform is not None:
+            data = self.transform(data)
+        return data
 
 
 def horizontal_shift(img, shift, unit='pixels'):
@@ -149,6 +219,8 @@ class Reorient(object):
         data['overhead'] = quantized_rotation(
             data['overhead'], torch.randint(4, ()).item())
         return data
+
+
 # class OverheadResizeCrop(object):
 #     """
 #     Crop, then resize, overhead image for data augmentation.
@@ -207,50 +279,6 @@ class Reorient(object):
 #         data['surface'] = surface_horizontal_shift(
 #             data['surface'], shift, unit=self.unit)
 #         return data
-
-
-class ImagePairDataset(torch.utils.data.Dataset):
-    """
-    Load pairs of images (one surface and one overhead)
-    from paths specified in a CSV file.
-    """
-    def __init__(self, csv_path, base_path=None, transform=None):
-        """
-        Arguments:
-        csv_path: Path to CSV file containing image paths.  File format:
-            surface_file.tif,overhead_file.tif
-        base_path: Starting folder for any relative file paths,
-            if different from the folder containing the CSV file.
-        """
-        self.csv_path = csv_path
-        if base_path is not None:
-            self.base_path = base_path
-        else:
-            self.base_path = os.path.dirname(csv_path)
-        self.transform = transform
-
-        # Read file paths and convert any relative file paths to absolute
-        #file_paths = pd.read_csv(self.csv_path, names=['surface', 'overhead'])
-        file_paths = pd.read_csv(self.csv_path, names=['overhead', 'surface', 'annotation'])
-        self.file_paths = file_paths.applymap(lambda x: os.path.join(self.base_path, x) if isinstance(x, str) and len(x)>0 and x[0] != '/' else x)
-
-    def __len__(self):
-        return len(self.file_paths)
-
-    def __getitem__(self, idx):
-        # Load data
-        surface_path = self.file_paths.iloc[idx]['surface']
-        overhead_path = self.file_paths.iloc[idx]['overhead']
-        surface_raw = io.imread(surface_path)
-        overhead_raw = io.imread(overhead_path)
-        surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
-        overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
-        data = {'surface':surface, 'overhead':overhead}
-
-        # Transform data
-        if self.transform is not None:
-            data = self.transform(data)
-        return data
 
 
 class SurfaceEncoder(nn.Module):
@@ -343,17 +371,18 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     return loss
 
 
-def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+def train(dataset='cvusa', val_quantity=1000, batch_size=64, num_workers=16, num_epochs=999999):
+
+    csv_path = Globals.dataset_paths[dataset]['train']
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        #Reorient(), #QuantizedSyncedRotation(),
         OrientationMaps(),
         SurfaceVertStretch()
     ])
 
     # Source the training and validation data
-    trainval_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    trainval_set = ImagePairDataset(dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -411,6 +440,8 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
                 running_count += count
                 running_loss += loss.item() * count
 
+                print('epoch = {} {}, iter = {}, count = {}, loss = {:.4f}'.format(epoch+1, phase, batch, running_count, loss))
+
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
 
         # Save weights if this is the lowest observed validation loss
@@ -421,17 +452,18 @@ def train(csv_path = '/local_data/cvusa/train.csv', val_quantity=1000, batch_siz
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16):
+def test(dataset='cvusa', batch_size=64, num_workers=16):
+
+    csv_path = Globals.dataset_paths[dataset]['test']
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        #Reorient(), #QuantizedSyncedRotation(),
         OrientationMaps(),
         SurfaceVertStretch()
     ])
 
     # Source the test data
-    test_set = ImagePairDataset(csv_path=csv_path, transform=transform)
+    test_set = ImagePairDataset(dataset, csv_path=csv_path, transform=transform)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural network
@@ -448,7 +480,7 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16)
     # Loop through batches of data
     surface_embed = None
     overhead_embed = None
-    for batch, data in enumerate(test_loader):
+    for batch, data in enumerate(tqdm.tqdm(test_loader)):
         surface = data['surface'].to(device)
         overhead = data['overhead'].to(device)
 
@@ -466,7 +498,7 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16)
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
-    for idx in range(count):
+    for idx in tqdm.tqdm(range(count)):
         this_surface_embed = torch.unsqueeze(surface_embed[idx, :], 0)
         distances = torch.pow(torch.sum(torch.pow(overhead_embed - this_surface_embed, 2), dim=1), 0.5)
         distance = distances[idx]
@@ -489,7 +521,17 @@ def test(csv_path = '/local_data/cvusa/test.csv', batch_size=64, num_workers=16)
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2 or sys.argv[1]=='train':
-        train()
-    elif sys.argv[1]=='test':
-        test()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode',
+                        default='train',
+                        choices=['train', 'test'],
+                        help='Run mode. [Default = train]')
+    parser.add_argument('--dataset',
+                        default='cvusa',
+                        choices=['cvusa', 'witw'],
+                        help='Dataset to use. [Default = cvusa]')
+    args = parser.parse_args()
+    if args.mode == 'train':
+        train(dataset=args.dataset)
+    elif args.mode == 'test':
+        test(dataset=args.dataset)
