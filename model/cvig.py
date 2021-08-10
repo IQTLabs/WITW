@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 
-device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 device_parallel = False
 device_ids = None
 
@@ -32,8 +32,8 @@ class Globals:
             'test': './data/val-19zl.csv'
         },
         'witw': {
-            'train':'./data2/train_scenes.csv',
-            'test':'./data2/test_scenes.csv'
+            'train':'./data2/train.csv',
+            'test':'./data2/test.csv'
         }
     }
     path_formats = {
@@ -113,123 +113,123 @@ class SurfaceResize(object):
         return data
 
 
-def horizontal_shift(img, shift, unit='pixels'):
-    """
-    Shift a 360-degree surface panorama counterclockwise (i.e., as if the
-    viewer were turning in a clockwise direction) by the specified amount.
-    """
-    if unit.lower() in ['pixels', 'pixel', 'p']:
-        pix_shift = -round(shift)
-    elif unit.lower() in ['fraction', 'fractions', 'f']:
-        pix_shift = -round(shift * img.size(-1))
-    elif unit.lower() in ['degrees', 'degree', 'd']:
-        pix_shift = -round(shift * img.size(-1) / 360.)
-    elif unit.lower() in ['radians', 'radian', 'r']:
-        pix_shift = -round(shift * img.size(-1) / (2 * math.pi))
-    else:
-        raise Exception('! Invalid unit in horizontal_shift()')
-    return torch.roll(img, pix_shift, dims=-1)
+# def horizontal_shift(img, shift, unit='pixels'):
+#     """
+#     Shift a 360-degree surface panorama counterclockwise (i.e., as if the
+#     viewer were turning in a clockwise direction) by the specified amount.
+#     """
+#     if unit.lower() in ['pixels', 'pixel', 'p']:
+#         pix_shift = -round(shift)
+#     elif unit.lower() in ['fraction', 'fractions', 'f']:
+#         pix_shift = -round(shift * img.size(-1))
+#     elif unit.lower() in ['degrees', 'degree', 'd']:
+#         pix_shift = -round(shift * img.size(-1) / 360.)
+#     elif unit.lower() in ['radians', 'radian', 'r']:
+#         pix_shift = -round(shift * img.size(-1) / (2 * math.pi))
+#     else:
+#         raise Exception('! Invalid unit in horizontal_shift()')
+#     return torch.roll(img, pix_shift, dims=-1)
 
 
-def quantized_rotation(img, factor):
-    """
-    Rotate an image counterclockwise by an integer factor times 90 degrees.
-    """
-    if factor % 4 == 0:
-        pass
-    elif factor % 4 == 1:
-        img = img.transpose(-2, -1).flip(-1)
-    elif factor % 4 == 2:
-        img = img.flip(-2).flip(-1)
-    elif factor % 4 == 3:
-        img = img.transpose(-2, -1).flip(-2)
-    return img
+# def quantized_rotation(img, factor):
+#     """
+#     Rotate an image counterclockwise by an integer factor times 90 degrees.
+#     """
+#     if factor % 4 == 0:
+#         pass
+#     elif factor % 4 == 1:
+#         img = img.transpose(-2, -1).flip(-1)
+#     elif factor % 4 == 2:
+#         img = img.flip(-2).flip(-1)
+#     elif factor % 4 == 3:
+#         img = img.transpose(-2, -1).flip(-2)
+#     return img
 
 
-def orientation_map(x, view='surface', orientation_dict=None):
-    """
-    Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
+# def orientation_map(x, view='surface', orientation_dict=None):
+#     """
+#     Returns "orientation map" tensor.  See Liu & Li CVPR 2019.
 
-    Arguments:
-    x = input image tensor
-    view = 'surface' or 'overhead'
-    orientation_dict = a dictionary in which to save previous results
-        for possible reuse (this improves performance)
-    """
-    if orientation_dict is not None:
-        description = (view, x.shape, x.device)
-    if orientation_dict is not None and description in orientation_dict.keys():
-        return orientation_dict[description]
-    else:
-        shape = (x.size(-2), x.size(-1))
-        shape_expanded = np.expand_dims(np.array(shape), (1,2))
-        shape_max = max(shape)
-        uv = np.indices(shape, dtype=float)
-        uv = (2 * uv - shape_expanded + 1) / (shape_max - 1)
-        if view == 'overhead':
-            uv[0], uv[1] = (np.sqrt(uv[0]**2 + uv[1]**2) / math.sqrt(2)) \
-                           * 2. - 1., \
-                           np.arctan2(uv[1], -uv[0]) / math.pi
-        uv = torch.tensor(uv, dtype=torch.float).to(x.device)
-        if orientation_dict is not None:
-            orientation_dict[description] = uv
-        return uv
-
-
-class OrientationMaps(object):
-    """
-    Applies appropriate "orientation map" tensors to surface/overhead pair.
-    See Liu & Li CVPR 2019.
-    """
-    orientation_dicts = [{}, {}]
-
-    def __call__(self, data):
-        for view, od in zip(['surface', 'overhead'], self.orientation_dicts):
-            x = data[view]
-            uv = orientation_map(data[view], view, od)
-            cat = torch.cat((x, uv), dim=0)
-            data[view] = cat
-        return data
+#     Arguments:
+#     x = input image tensor
+#     view = 'surface' or 'overhead'
+#     orientation_dict = a dictionary in which to save previous results
+#         for possible reuse (this improves performance)
+#     """
+#     if orientation_dict is not None:
+#         description = (view, x.shape, x.device)
+#     if orientation_dict is not None and description in orientation_dict.keys():
+#         return orientation_dict[description]
+#     else:
+#         shape = (x.size(-2), x.size(-1))
+#         shape_expanded = np.expand_dims(np.array(shape), (1,2))
+#         shape_max = max(shape)
+#         uv = np.indices(shape, dtype=float)
+#         uv = (2 * uv - shape_expanded + 1) / (shape_max - 1)
+#         if view == 'overhead':
+#             uv[0], uv[1] = (np.sqrt(uv[0]**2 + uv[1]**2) / math.sqrt(2)) \
+#                            * 2. - 1., \
+#                            np.arctan2(uv[1], -uv[0]) / math.pi
+#         uv = torch.tensor(uv, dtype=torch.float).to(x.device)
+#         if orientation_dict is not None:
+#             orientation_dict[description] = uv
+#         return uv
 
 
-class SyncedRotation(object):
-    """
-    Shift a 360-degree surface panorama and rotate
-    the overhead image by the same random angle.
-    """
-    def __call__(self, data):
-        angle = torch.rand(()).item() * 360.
-        data['surface'] = horizontal_shift(
-            data['surface'], angle, unit='degrees')
-        data['overhead'] = torchvision.transforms.functional.rotate(
-            data['overhead'], angle)
-        return data
+# class OrientationMaps(object):
+#     """
+#     Applies appropriate "orientation map" tensors to surface/overhead pair.
+#     See Liu & Li CVPR 2019.
+#     """
+#     orientation_dicts = [{}, {}]
+
+#     def __call__(self, data):
+#         for view, od in zip(['surface', 'overhead'], self.orientation_dicts):
+#             x = data[view]
+#             uv = orientation_map(data[view], view, od)
+#             cat = torch.cat((x, uv), dim=0)
+#             data[view] = cat
+#         return data
 
 
-class QuantizedSyncedRotation(object):
-    """
-    Shift a 360-degree surface panorama and rotate the
-    overhead image by the same random multiple of 90 degrees.
-    """
-    def __call__(self, data):
-        factor = torch.randint(4, ()).item()
-        data['surface'] = horizontal_shift(
-            data['surface'], factor * 90, unit='degrees')
-        data['overhead'] = quantized_rotation(data['overhead'], factor)
-        return data
+# class SyncedRotation(object):
+#     """
+#     Shift a 360-degree surface panorama and rotate
+#     the overhead image by the same random angle.
+#     """
+#     def __call__(self, data):
+#         angle = torch.rand(()).item() * 360.
+#         data['surface'] = horizontal_shift(
+#             data['surface'], angle, unit='degrees')
+#         data['overhead'] = torchvision.transforms.functional.rotate(
+#             data['overhead'], angle)
+#         return data
 
 
-class Reorient(object):
-    """
-    Shift a 360-degree surface panorama by a random amount, and rotate the
-    overhead image by an independent random number of 90-degree rotations.
-    """
-    def __call__(self, data):
-        data['surface'] = horizontal_shift(
-            data['surface'], torch.rand(()).item(), unit='fraction')
-        data['overhead'] = quantized_rotation(
-            data['overhead'], torch.randint(4, ()).item())
-        return data
+# class QuantizedSyncedRotation(object):
+#     """
+#     Shift a 360-degree surface panorama and rotate the
+#     overhead image by the same random multiple of 90 degrees.
+#     """
+#     def __call__(self, data):
+#         factor = torch.randint(4, ()).item()
+#         data['surface'] = horizontal_shift(
+#             data['surface'], factor * 90, unit='degrees')
+#         data['overhead'] = quantized_rotation(data['overhead'], factor)
+#         return data
+
+
+# class Reorient(object):
+#     """
+#     Shift a 360-degree surface panorama by a random amount, and rotate the
+#     overhead image by an independent random number of 90-degree rotations.
+#     """
+#     def __call__(self, data):
+#         data['surface'] = horizontal_shift(
+#             data['surface'], torch.rand(()).item(), unit='fraction')
+#         data['overhead'] = quantized_rotation(
+#             data['overhead'], torch.randint(4, ()).item())
+#         return data
 
 
 # class OverheadResizeCrop(object):
@@ -382,7 +382,7 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
     return loss
 
 
-def train(dataset='cvusa', val_quantity=1000, batch_size=32, num_workers=16, num_epochs=999999):
+def train(dataset='cvusa', val_quantity=1000, batch_size=16, num_workers=4, num_epochs=999999):
 
     csv_path = Globals.dataset_paths[dataset]['train']
 
@@ -394,7 +394,7 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=32, num_workers=16, num
 
     # Source the training and validation data
     trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
-    train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
+    train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) - val_quantity, val_quantity])
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
@@ -465,7 +465,7 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=32, num_workers=16, num
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(dataset='cvusa', batch_size=32, num_workers=8):
+def test(dataset='cvusa', batch_size=16, num_workers=4):
 
     csv_path = Globals.dataset_paths[dataset]['test']
 
