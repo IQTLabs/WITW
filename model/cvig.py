@@ -92,6 +92,25 @@ class ImagePairDataset(torch.utils.data.Dataset):
         return data
 
 
+class SurfaceResize(object):
+    """
+    Resize surface image to fit this model architecture.
+    """
+    def __init__(self, dataset):
+        self.dataset = dataset
+    def __call__(self, data):
+        if self.dataset == 'cvusa':
+            data['surface'] = torch.repeat_interleave(
+                data['surface'], 2, dim=-2)
+        elif self.dataset == 'witw':
+            data['surface'] = torchvision.transforms.functional.resize(
+                data['surface'], [500, 500])
+        else:
+            raise Exception('! Invalid dataset type in ' + type(self).__name__
+                            + '().')
+        return data
+
+
 def horizontal_shift(img, shift, unit='pixels'):
     """
     Shift a 360-degree surface panorama counterclockwise (i.e., as if the
@@ -282,7 +301,7 @@ class Reorient(object):
 
 
 class SurfaceEncoder(nn.Module):
-    def __init__(self, orientation=True, bands=3, p=3.):
+    def __init__(self, orientation=False, bands=3, p=3.):
         super().__init__()
         self.orientation = orientation
         self.bands = bands
@@ -377,8 +396,8 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=64, num_workers=16, num
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        OrientationMaps(),
-        SurfaceVertStretch()
+        #OrientationMaps(),
+        SurfaceResize(dataset)
     ])
 
     # Source the training and validation data
@@ -458,8 +477,8 @@ def test(dataset='cvusa', batch_size=64, num_workers=16):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        OrientationMaps(),
-        SurfaceVertStretch()
+        #OrientationMaps(),
+        SurfaceResize(dataset)
     ])
 
     # Source the test data
