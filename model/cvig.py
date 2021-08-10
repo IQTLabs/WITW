@@ -22,6 +22,7 @@ import torch.nn.functional as F
 import torchvision
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device_ids = [0, 1]
 
 class Globals:
     dataset_paths = {
@@ -401,7 +402,7 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=64, num_workers=16, num
     ])
 
     # Source the training and validation data
-    trainval_set = ImagePairDataset(dataset, csv_path=csv_path, transform=transform)
+    trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
@@ -410,8 +411,10 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=64, num_workers=16, num
     surface_encoder = SurfaceEncoder().to(device)
     overhead_encoder = OverheadEncoder().to(device)
     if torch.cuda.device_count() > 1:
-        surface_encoder = nn.DataParallel(surface_encoder)
-        overhead_encoder = nn.DataParallel(overhead_encoder)
+        surface_encoder = nn.DataParallel(surface_encoder,
+                                          device_ids=device_ids)
+        overhead_encoder = nn.DataParallel(overhead_encoder,
+                                           device_ids=device_ids)
     # Loss function
     loss_func = exhaustive_minibatch_triplet_loss
     # Optimizer
@@ -471,7 +474,7 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=64, num_workers=16, num
             torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
 
 
-def test(dataset='cvusa', batch_size=64, num_workers=16):
+def test(dataset='cvusa', batch_size=64, num_workers=8):
 
     csv_path = Globals.dataset_paths[dataset]['test']
 
@@ -482,15 +485,17 @@ def test(dataset='cvusa', batch_size=64, num_workers=16):
     ])
 
     # Source the test data
-    test_set = ImagePairDataset(dataset, csv_path=csv_path, transform=transform)
+    test_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     # Load the neural network
     surface_encoder = SurfaceEncoder().to(device)
     overhead_encoder = OverheadEncoder().to(device)
     if torch.cuda.device_count() > 1:
-        surface_encoder = nn.DataParallel(surface_encoder)
-        overhead_encoder = nn.DataParallel(overhead_encoder)
+        surface_encoder = nn.DataParallel(surface_encoder,
+                                          device_ids=device_ids)
+        overhead_encoder = nn.DataParallel(overhead_encoder,
+                                          device_ids=device_ids)
     surface_encoder.load_state_dict(torch.load('./surface_best.pth'))
     overhead_encoder.load_state_dict(torch.load('./overhead_best.pth'))
     surface_encoder.eval()
