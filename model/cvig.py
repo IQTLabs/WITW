@@ -40,12 +40,14 @@ class Globals:
         'cvusa': {
             'path_columns' : [0, 1],
             'path_names' : ['overhead', 'surface'],
-            'header' : None
+            'header' : None,
+            'panorama' : True,
         },
         'witw': {
             'path_columns' : [15, 16],
             'path_names' : ['surface', 'overhead'],
-            'header' : 0
+            'header' : 0,
+            'panorama' : False,
         }
     }
 
@@ -94,56 +96,70 @@ class ImagePairDataset(torch.utils.data.Dataset):
         return data
 
 
-class SurfaceResize(object):
+def horizontal_shift(img, shift, unit='pixels'):
     """
-    Resize surface image to fit this model architecture.
+    Shift a 360-degree surface panorama counterclockwise (i.e., as if the
+    viewer were turning in a clockwise direction) by the specified amount.
+    """
+    if unit.lower() in ['pixels', 'pixel', 'p']:
+        pix_shift = -round(shift)
+    elif unit.lower() in ['fraction', 'fractions', 'f']:
+        pix_shift = -round(shift * img.size(-1))
+    elif unit.lower() in ['degrees', 'degree', 'd']:
+        pix_shift = -round(shift * img.size(-1) / 360.)
+    elif unit.lower() in ['radians', 'radian', 'r']:
+        pix_shift = -round(shift * img.size(-1) / (2 * math.pi))
+    else:
+        raise Exception('! Invalid unit in horizontal_shift()')
+    return torch.roll(img, pix_shift, dims=-1)
+
+
+def quantized_rotation(img, factor):
+    """
+    Rotate an image counterclockwise by an integer factor times 90 degrees.
+    """
+    if factor % 4 == 0:
+        pass
+    elif factor % 4 == 1:
+        img = img.transpose(-2, -1).flip(-1)
+    elif factor % 4 == 2:
+        img = img.flip(-2).flip(-1)
+    elif factor % 4 == 3:
+        img = img.transpose(-2, -1).flip(-2)
+    return img
+
+
+class SyncedRotation(object):
+    """
+    Rotate the overhead image by a random angle.  If the surface image
+    is a panorama, shift it by the corresponding amount.
     """
     def __init__(self, dataset):
         self.dataset = dataset
     def __call__(self, data):
-        if self.dataset == 'cvusa':
-            data['surface'] = torch.repeat_interleave(
-                data['surface'], 2, dim=-2)
-        elif self.dataset == 'witw':
-            data['surface'] = torchvision.transforms.functional.resize(
-                data['surface'], [500, 500])
-        else:
-            raise Exception('! Invalid dataset type in ' + type(self).__name__
-                            + '().')
+        angle = torch.rand(()).item() * 360.
+        if Globals.path_formats[self.dataset]['panorama']:
+            data['surface'] = horizontal_shift(
+                data['surface'], angle, unit='degrees')
+        data['overhead'] = torchvision.transforms.functional.rotate(
+            data['overhead'], angle)
         return data
 
 
-# def horizontal_shift(img, shift, unit='pixels'):
-#     """
-#     Shift a 360-degree surface panorama counterclockwise (i.e., as if the
-#     viewer were turning in a clockwise direction) by the specified amount.
-#     """
-#     if unit.lower() in ['pixels', 'pixel', 'p']:
-#         pix_shift = -round(shift)
-#     elif unit.lower() in ['fraction', 'fractions', 'f']:
-#         pix_shift = -round(shift * img.size(-1))
-#     elif unit.lower() in ['degrees', 'degree', 'd']:
-#         pix_shift = -round(shift * img.size(-1) / 360.)
-#     elif unit.lower() in ['radians', 'radian', 'r']:
-#         pix_shift = -round(shift * img.size(-1) / (2 * math.pi))
-#     else:
-#         raise Exception('! Invalid unit in horizontal_shift()')
-#     return torch.roll(img, pix_shift, dims=-1)
-
-
-# def quantized_rotation(img, factor):
-#     """
-#     Rotate an image counterclockwise by an integer factor times 90 degrees.
-#     """
-#     if factor % 4 == 0:
-#         pass
-#     elif factor % 4 == 1:
-#         img = img.transpose(-2, -1).flip(-1)
-#     elif factor % 4 == 2:
-#         img = img.flip(-2).flip(-1)
-#     elif factor % 4 == 3:
-#         img = img.transpose(-2, -1).flip(-2)
-#     return img
+class QuantizedSyncedRotation(object):
+    """
+    Rotate the overhead image by a random multiple of 90 degrees.  If the
+    surface image is a panorama, shift it by the corresponding amount.
+    """
+    def __init__(self, dataset):
+        self.dataset = dataset
+    def __call__(self, data):
+        factor = torch.randint(4, ()).item()
+        if Globals.path_formats[self.dataset]['panorama']:
+            data['surface'] = horizontal_shift(
+                data['surface'], factor * 90, unit='degrees')
+        data['overhead'] = quantized_rotation(data['overhead'], factor)
+        return data
 
 
 # def orientation_map(x, view='surface', orientation_dict=None):
@@ -192,104 +208,23 @@ class SurfaceResize(object):
 #         return data
 
 
-# class SyncedRotation(object):
-#     """
-#     Shift a 360-degree surface panorama and rotate
-#     the overhead image by the same random angle.
-#     """
-#     def __call__(self, data):
-#         angle = torch.rand(()).item() * 360.
-#         data['surface'] = horizontal_shift(
-#             data['surface'], angle, unit='degrees')
-#         data['overhead'] = torchvision.transforms.functional.rotate(
-#             data['overhead'], angle)
-#         return data
-
-
-# class QuantizedSyncedRotation(object):
-#     """
-#     Shift a 360-degree surface panorama and rotate the
-#     overhead image by the same random multiple of 90 degrees.
-#     """
-#     def __call__(self, data):
-#         factor = torch.randint(4, ()).item()
-#         data['surface'] = horizontal_shift(
-#             data['surface'], factor * 90, unit='degrees')
-#         data['overhead'] = quantized_rotation(data['overhead'], factor)
-#         return data
-
-
-# class Reorient(object):
-#     """
-#     Shift a 360-degree surface panorama by a random amount, and rotate the
-#     overhead image by an independent random number of 90-degree rotations.
-#     """
-#     def __call__(self, data):
-#         data['surface'] = horizontal_shift(
-#             data['surface'], torch.rand(()).item(), unit='fraction')
-#         data['overhead'] = quantized_rotation(
-#             data['overhead'], torch.randint(4, ()).item())
-#         return data
-
-
-# class OverheadResizeCrop(object):
-#     """
-#     Crop, then resize, overhead image for data augmentation.
-#     Currently hardwired for CVUSA size.
-#     """
-#     def __call__(self, data):
-#         new_size = torch.randint(512, 750, ()).item()
-#         transform1 = torchvision.transforms.RandomCrop(new_size)
-#         transform2 = torchvision.transforms.Resize(512)
-#         transform = torchvision.transforms.Compose([transform1, transform2])
-#         data['overhead'] = transform(data['overhead'])
-#         return data
-# class Reflection(object):
-#     """
-#     Take mirror image of data, half of the time.
-#     """
-#     def __init__(self, overhead_axis=-1):
-#         self.overhead_axis = overhead_axis
-
-#     def __call__(self, data):
-#         coin_toss = torch.randint(2, ()).item()
-#         if coin_toss > 0:
-#             data['surface'] = data['surface'].flip(-1)
-#             data['overhead'] = data['overhead'].flip(self.overhead_axis)
-#         return data
-# class QuadRotation(object):
-#     """
-#     Shift surface image and rotate overhead image as if the viewer turned
-#     by a random multiple of 90 degrees.
-#     """
-#     def __call__(self, data):
-#         factor = torch.randint(4, ()).item()
-#         data['surface'] = surface_horizontal_shift(
-#             data['surface'], factor * 90., 'degrees')
-#         data['overhead'] = overhead_quantized_rotation(
-#             data['overhead'], factor)
-#         return data
-# class RandomHorizontalShift(object):
-#     """
-#     Shift a 360-degree surface panorama by a random amount.
-#     """
-#     def __call__(self, data):
-#         data['surface'] = surface_horizontal_shift(
-#             data['surface'], torch.rand(()).item(), unit='fraction')
-#         return data
-# class ConstrainedHorizontalShift(object):
-#     """
-#     Shift a 360-degree surface panorama by a random amount within a set range.
-#     """
-#     def __init__(self, max_shift=10, unit='pixels'):
-#         self.max_shift = max_shift
-#         self.unit = unit
-
-#     def __call__(self, data):
-#         shift = self.max_shift * (-1. + 2 * torch.rand(()).item())
-#         data['surface'] = surface_horizontal_shift(
-#             data['surface'], shift, unit=self.unit)
-#         return data
+class SurfaceResize(object):
+    """
+    Resize surface image to fit this model architecture.
+    """
+    def __init__(self, dataset):
+        self.dataset = dataset
+    def __call__(self, data):
+        if self.dataset == 'cvusa':
+            data['surface'] = torch.repeat_interleave(
+                data['surface'], 2, dim=-2)
+        elif self.dataset == 'witw':
+            data['surface'] = torchvision.transforms.functional.resize(
+                data['surface'], [500, 500])
+        else:
+            raise Exception('! Invalid dataset type in ' + type(self).__name__
+                            + '().')
+        return data
 
 
 class SurfaceEncoder(nn.Module):
@@ -388,6 +323,7 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=16, num_workers=4, num_
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
+        SyncedRotation(dataset),
         #OrientationMaps(),
         SurfaceResize(dataset)
     ])
@@ -471,6 +407,7 @@ def test(dataset='cvusa', batch_size=16, num_workers=4):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
+        SyncedRotation(dataset),
         #OrientationMaps(),
         SurfaceResize(dataset)
     ])
