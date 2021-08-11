@@ -90,29 +90,38 @@ class ImagePairDataset(torch.utils.data.Dataset):
         return data
 
 class GlobalMining(object): 
-    def __init__(self, dataset_len, embed_shape, mining_pool_size, instance_pool_size, device): 
-        self.global_overhead_embed = torch.zeros(dataset_len, *embed_shape).to(device)
-        self.global_surface_embed = torch.zeros(dataset_len, *embed_shape).to(device)
-        self.mining_pool = torch.zeros(dataset_len, instance_pool_size).to(device)
-        self.dataset_len = dataset_len
+    def __init__(self, indices, fov, mining_pool_size, instance_pool_size, device): 
+        self.dataset_len = len(indices)
+        overhead_embed_shape = [16,4,int(Globals.surface_width_max / 8)]
+        surface_embed_shape = [16,4,int(fov / 360 * Globals.surface_width_max / 8)]
+        self.global_overhead_embed = torch.zeros(self.dataset_len, *overhead_embed_shape).to(device)
+        self.global_surface_embed = torch.zeros(self.dataset_len, *surface_embed_shape).to(device)
+        self.mining_pool = np.array([random.sample(indices, instance_pool_size) for _ in range(self.dataset_len)])
         self.instance_pool_size = instance_pool_size
         self.mining_pool_size = mining_pool_size
-        assert self.mining_pool_size < dataset_len
+        assert self.mining_pool_size < self.dataset_len
         self.mining_pool_ready = False
+        self.dataidx2miningidx = {}
+        for i,idx in enumerate(indices): 
+            self.dataidx2miningidx[idx] = i
+        self.device = device
+        self.indices = indices
+
 
     def update_mining_pool(self): 
-        mining_pool_idxs = np.array(random.sample(range(self.dataset_len), self.mining_pool_size))
+        data_pool_idxs = np.array(random.sample(self.indices, self.mining_pool_size))
+        mining_pool_idxs = np.array([self.dataidx2miningidx[idx] for idx in data_pool_idxs])
         overhead_mining_pool = self.global_overhead_embed[mining_pool_idxs, :]
-        for idx in range(self.dataset_len):
+        print('Building mining pool...')
+        for idx in tqdm.tqdm(range(self.dataset_len)):
             this_surface_embed = torch.unsqueeze(self.global_surface_embed[idx, :], 0)
             orientation_estimate = correlation(overhead_mining_pool, this_surface_embed)
             overhead_pool_cropped = crop_overhead(overhead_mining_pool, orientation_estimate, this_surface_embed.shape[3])
             distances = l2_distance(overhead_pool_cropped, this_surface_embed)
             distances = torch.squeeze(distances)
-            self.mining_pool[idx] = mining_pool_idxs[torch.argsort(distances, dim=0).cpu()[-self.instance_pool_size:]]
+            self.mining_pool[idx] = data_pool_idxs[torch.argsort(distances, dim=0).cpu()[-self.instance_pool_size:]]
         self.mining_pool_ready = True
         
-
 class Resize(object):
     """
     Resize the images to fit model and crop to fov.
@@ -397,7 +406,10 @@ def triplet_loss(distances, alpha=10.):
     return soft_margin_triplet_loss
 
 
-def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=12, num_epochs=999999):
+def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_workers=12, num_epochs=999999):
+
+    random_seed = 7
+    np.random.seed(random_seed)
 
     writer = SummaryWriter('runs/{}/train/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
 
@@ -412,10 +424,14 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
     # Source the training and validation data
     trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
-    train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    mining = GlobalMining(len(train_set), [16,4,64], 10000, 100, device)
+    indices = list(range(len(trainval_set)))
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[val_quantity:], indices[:val_quantity]
+    train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_indices)
+    val_sampler = torch.utils.data.sampler.SubsetRandomSampler(val_indices)
+    train_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=train_sampler)
+    val_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=val_sampler)
+    mining = GlobalMining(train_indices, fov, 10, 5, device)
 
     # Neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -452,6 +468,20 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
             #Loop through batches of data
             for batch, data in enumerate(loader):
+
+                if phase == 'train' and mining.mining_pool_ready: 
+                    hard_neg_idxs = mining.mining_pool[[mining.dataidx2miningidx[idx.item()] for idx in data['idx']],0]
+                    temp_surface = []
+                    temp_polar = []
+                    temp_idx = []
+                    for idx in hard_neg_idxs: 
+                        temp_surface.append(trainval_set[idx]['surface'])
+                        temp_polar.append(trainval_set[idx]['polar'])
+                        temp_idx.append(trainval_set[idx]['idx'])
+                    data['surface'] = torch.cat((data['surface'], torch.stack(temp_surface)), dim=0)
+                    data['polar'] = torch.cat((data['polar'], torch.stack(temp_polar)), dim=0)
+                    data['idx'] = torch.cat((data['idx'], torch.tensor(temp_idx)), dim=0)
+
                 surface = data['surface'].to(device)
                 #overhead = data['overhead'].to(device)
                 overhead = data['polar'].to(device)
@@ -474,8 +504,9 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
                         optimizer.zero_grad()
                         loss.backward()
                         optimizer.step()
-                        mining.global_surface_embed = torch.cat((mining.global_surface_embed[len(surface):], surface_embed), dim=0)
-                        mining.global_overhead_embed = torch.cat((mining.global_overhead_embed[len(overhead):], overhead_embed), dim=0)
+                        miningidxs = [mining.dataidx2miningidx[idx.item()] for idx in data['idx']]
+                        mining.global_surface_embed[miningidxs] = surface_embed
+                        mining.global_overhead_embed[miningidxs] = overhead_embed
 
                 count = surface_embed.size(0)
                 running_count += count
@@ -493,8 +524,9 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
         labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
         label_header = ['idx', 'type']
-        original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        writer.add_embedding(torch.cat((surface_embed.view(surface_embed.shape[0], -1),overhead_embed.view(overhead_embed.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
+        original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
+        writer.add_embedding(torch.cat((surface_embed.reshape(surface_embed.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
 
         # Save weights if this is the lowest observed validation loss
         if best_loss is None or running_loss / running_count < best_loss:
@@ -550,8 +582,11 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     labels = [[i,0] for i in list(range(surface_embed_part.shape[0]))] + [[i,1] for i in list(range(overhead_embed_part.shape[0]))]
     label_header = ['idx', 'type']
-    original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_embed_part.view(overhead_embed_part.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
+    original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    orientation_estimate = correlation(overhead_embed_part, surface_embed_part)
+    overhead_cropped = crop_overhead(overhead_embed_part, orientation_estimate, surface_embed_part.shape[3])
+    overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
+    writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
     
     # Measure performance
     count = surface_embed.size(0)
