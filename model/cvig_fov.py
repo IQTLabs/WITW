@@ -464,8 +464,9 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
         
         labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
         label_header = ['idx', 'type']
-        original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        writer.add_embedding(torch.cat((surface_embed.view(surface_embed.shape[0], -1),overhead_embed.view(overhead_embed.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
+        original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
+        writer.add_embedding(torch.cat((surface_embed.reshape(surface_embed.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
 
         # Save weights if this is the lowest observed validation loss
         if best_loss is None or running_loss / running_count < best_loss:
@@ -521,8 +522,11 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     labels = [[i,0] for i in list(range(surface_embed_part.shape[0]))] + [[i,1] for i in list(range(overhead_embed_part.shape[0]))]
     label_header = ['idx', 'type']
-    original_images = inverse_normalize(torch.cat((surface, overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_embed_part.view(overhead_embed_part.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
+    original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    orientation_estimate = correlation(overhead_embed_part, surface_embed_part)
+    overhead_cropped = crop_overhead(overhead_embed_part, orientation_estimate, surface_embed_part.shape[3])
+    overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
+    writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
     
     # Measure performance
     count = surface_embed.size(0)
