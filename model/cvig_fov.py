@@ -391,8 +391,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
     # Source the training and validation data
     trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
+    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -478,6 +478,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
             torch.save(overhead_encoder.state_dict(), './weights/fov_{}_overhead_best.pth'.format(int(fov)))
             writer.add_text('best_loss', 'new best loss: {}, epoch: {}'.format(best_loss, epoch+1), epoch * len(loader) + batch)
 
+
 def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     writer = SummaryWriter('runs/{}/test/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
@@ -494,7 +495,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     # Source the test data
     test_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Load the neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -564,6 +565,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     writer.add_text('avg_rank', 'Avg. Rank: {:.2f}'.format(mean))
     writer.add_text('med_rank', 'Med. Rank: {:.2f}'.format(median))
     writer.add_text('locations', 'Locations: {}'.format(count))
+
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
