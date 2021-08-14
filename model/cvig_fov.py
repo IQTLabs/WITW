@@ -6,6 +6,7 @@ import sys
 import math
 import time
 import tqdm
+import pathlib
 import numpy as np
 import pandas as pd
 from skimage import io
@@ -375,6 +376,7 @@ def triplet_loss(distances, alpha=10.):
 
 def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_workers=12, num_epochs=999999):
 
+    pathlib.Path('./weights').mkdir(parents=True, exist_ok=True)
     writer = SummaryWriter('runs/{}/train/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
 
     csv_path = Globals.dataset_paths[dataset]['train']
@@ -472,8 +474,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
         if best_loss is None or running_loss / running_count < best_loss:
             print('-------> new best')
             best_loss = running_loss / running_count
-            torch.save(surface_encoder.state_dict(), './fov_{}_surface_best.pth'.format(int(fov)))
-            torch.save(overhead_encoder.state_dict(), './fov_{}_overhead_best.pth'.format(int(fov)))
+            torch.save(surface_encoder.state_dict(), './weights/fov_{}_surface_best.pth'.format(int(fov)))
+            torch.save(overhead_encoder.state_dict(), './weights/fov_{}_overhead_best.pth'.format(int(fov)))
             writer.add_text('best_loss', 'new best loss: {}, epoch: {}'.format(best_loss, epoch+1), epoch * len(loader) + batch)
 
 def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
@@ -497,8 +499,8 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     # Load the neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
     overhead_encoder = FOV_DSM(circ_padding=True).to(device)
-    surface_encoder.load_state_dict(torch.load('./fov_{}_surface_best.pth'.format(int(fov))))
-    overhead_encoder.load_state_dict(torch.load('./fov_{}_overhead_best.pth'.format(int(fov))))
+    surface_encoder.load_state_dict(torch.load('./weights/fov_{}_surface_best.pth'.format(int(fov))))
+    overhead_encoder.load_state_dict(torch.load('./weights/fov_{}_overhead_best.pth'.format(int(fov))))
     surface_encoder.eval()
     overhead_encoder.eval()
 

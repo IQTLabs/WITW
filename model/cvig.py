@@ -11,6 +11,7 @@ import glob
 import math
 import time
 import tqdm
+import pathlib
 import argparse
 import numpy as np
 import pandas as pd
@@ -319,6 +320,7 @@ def exhaustive_minibatch_triplet_loss(embed1, embed2, soft_margin=False, alpha=1
 
 def train(dataset='cvusa', val_quantity=1000, batch_size=16, num_workers=4, num_epochs=999999):
 
+    pathlib.Path('./weights').mkdir(parents=True, exist_ok=True)
     csv_path = Globals.dataset_paths[dataset]['train']
 
     # Data modification and augmentation
@@ -397,8 +399,10 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=16, num_workers=4, num_
         if best_loss is None or running_loss / running_count < best_loss:
             print('-------> new best')
             best_loss = running_loss / running_count
-            torch.save(surface_encoder.state_dict(), './surface_best.pth')
-            torch.save(overhead_encoder.state_dict(), './overhead_best.pth')
+            torch.save(surface_encoder.state_dict(),
+                       './weights/surface_best.pth')
+            torch.save(overhead_encoder.state_dict(),
+                       './weights/overhead_best.pth')
 
 
 def test(dataset='cvusa', batch_size=16, num_workers=4):
@@ -425,9 +429,9 @@ def test(dataset='cvusa', batch_size=16, num_workers=4):
         overhead_encoder = nn.DataParallel(
             overhead_encoder, device_ids=device_ids)
     surface_encoder.load_state_dict(torch.load(
-        './surface_best.pth', map_location='cpu'))
+        './weights/surface_best.pth', map_location='cpu'))
     overhead_encoder.load_state_dict(torch.load(
-        './overhead_best.pth', map_location='cpu'))
+        './weights/overhead_best.pth', map_location='cpu'))
     surface_encoder.eval()
     overhead_encoder.eval()
 
