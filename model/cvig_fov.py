@@ -36,12 +36,14 @@ class Globals:
         'cvusa': {
             'path_columns' : [0, 1],
             'path_names' : ['overhead', 'surface'],
-            'header' : None
+            'header' : None,
+            'panorama' : True,
         },
         'witw': {
             'path_columns' : [15, 16],
             'path_names' : ['surface', 'overhead'],
-            'header' : 0
+            'header' : 0,
+            'panorama' : False,
         }
     }
 
@@ -54,10 +56,12 @@ class ImagePairDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, csv_path, base_path=None, transform=None):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         csv_path: Path to CSV file containing image paths.  File format:
             surface_file.tif,overhead_file.tif
         base_path: Starting folder for any relative file paths,
-            if different from the folder containing the CSV file.
+            if different from the folder containing the CSV file
+        transform: transformation to apply, if any
         """
         self.csv_path = csv_path
         if base_path is not None:
@@ -94,18 +98,17 @@ class Resize(object):
     """
     Resize the images to fit model and crop to fov.
     """
-    def __init__(self, fov=360, panorama=True, random_orientation=True):
+    def __init__(self, dataset, fov=360, random_orientation=True):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         fov: field of view of output surface image, in degrees
-        panorama: True if input surface image is a 360-degree panorama;
-            False if input surface image has field of view equal to fov
-        random_orientation: For panoramic input, whether to randomly rotate
-            before cropping
+        random_orientation: For panoramic input (i.e., cvusa),
+            whether to randomly rotate before cropping
         """
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
-        self.panorama = panorama
+        self.panorama = Globals.path_formats['dataset'].panorama
         self.random_orientation = random_orientation
 
     def __call__(self, data):
@@ -383,7 +386,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        Resize(fov, dataset=='cvusa'),
+        Resize(dataset, fov),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -487,7 +490,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        Resize(fov, dataset=='cvusa'),
+        Resize(dataset, fov),
         ImageNormalization(),
         PolarTransform()
     ])
