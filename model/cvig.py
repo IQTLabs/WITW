@@ -61,10 +61,12 @@ class ImagePairDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, csv_path, base_path=None, transform=None):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         csv_path: Path to CSV file containing image paths.  File format:
             surface_file.tif,overhead_file.tif
         base_path: Starting folder for any relative file paths,
-            if different from the folder containing the CSV file.
+            if different from the folder containing the CSV file
+        transform: transformation to apply, if any
         """
         self.csv_path = csv_path
         if base_path is not None:
