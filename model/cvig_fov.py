@@ -21,6 +21,9 @@ class Globals:
     surface_width_max = 512
     overhead_size = 256
 
+    img_mean = [0.485, 0.456, 0.406]
+    img_std = [0.229, 0.224, 0.225]
+
     dataset_paths = {
         'cvusa': {
             'train': './data/train-19zl.csv',
@@ -36,12 +39,14 @@ class Globals:
         'cvusa': {
             'path_columns' : [0, 1],
             'path_names' : ['overhead', 'surface'],
-            'header' : None
+            'header' : None,
+            'panorama' : True,
         },
         'witw': {
             'path_columns' : [15, 16],
             'path_names' : ['surface', 'overhead'],
-            'header' : 0
+            'header' : 0,
+            'panorama' : False,
         }
     }
 
@@ -54,10 +59,12 @@ class ImagePairDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, csv_path, base_path=None, transform=None):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         csv_path: Path to CSV file containing image paths.  File format:
             surface_file.tif,overhead_file.tif
         base_path: Starting folder for any relative file paths,
-            if different from the folder containing the CSV file.
+            if different from the folder containing the CSV file
+        transform: transformation to apply, if any
         """
         self.csv_path = csv_path
         if base_path is not None:
@@ -94,18 +101,17 @@ class Resize(object):
     """
     Resize the images to fit model and crop to fov.
     """
-    def __init__(self, fov=360, panorama=True, random_orientation=True):
+    def __init__(self, dataset, fov=360, random_orientation=True):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         fov: field of view of output surface image, in degrees
-        panorama: True if input surface image is a 360-degree panorama;
-            False if input surface image has field of view equal to fov
-        random_orientation: For panoramic input, whether to randomly rotate
-            before cropping
+        random_orientation: For panoramic input (i.e., cvusa),
+            whether to randomly rotate before cropping
         """
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
-        self.panorama = panorama
+        self.panorama = Globals.path_formats[dataset]['panorama']
         self.random_orientation = random_orientation
 
     def __call__(self, data):
@@ -135,9 +141,7 @@ class ImageNormalization(object):
     def __init__(self):
         self.keys = ['surface', 'overhead']
         self.norm = torchvision.transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
+            mean=Globals.img_mean, std=Globals.img_std)
 
     def __call__(self, data):
         for key in self.keys:
@@ -383,7 +387,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
 
     # Data modification and augmentation
     transform = torchvision.transforms.Compose([
-        Resize(fov, dataset=='cvusa'),
+        Resize(dataset, fov),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -391,8 +395,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
     # Source the training and validation data
     trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) -  val_quantity, val_quantity])
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
+    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -466,7 +470,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
         
         labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
         label_header = ['idx', 'type']
-        original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=Globals.img_mean, std=Globals.img_std)
         overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
         writer.add_embedding(torch.cat((surface_embed.reshape(surface_embed.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=epoch+1, tag='val_embedding')
 
@@ -478,6 +482,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
             torch.save(overhead_encoder.state_dict(), './weights/fov_{}_overhead_best.pth'.format(int(fov)))
             writer.add_text('best_loss', 'new best loss: {}, epoch: {}'.format(best_loss, epoch+1), epoch * len(loader) + batch)
 
+
 def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     writer = SummaryWriter('runs/{}/test/{}/{}'.format(dataset, fov, datetime.now().strftime("%Y%m%d-%H%M%S")))
@@ -486,7 +491,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     # Specify transformation, if any
     transform = torchvision.transforms.Compose([
-        Resize(fov, dataset=='cvusa'),
+        Resize(dataset, fov),
         ImageNormalization(),
         PolarTransform()
     ])
@@ -494,7 +499,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     # Source the test data
     test_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     #test_loader = torch.utils.data.DataLoader(test_set,sampler=torch.utils.data.SubsetRandomSampler(range(2000)), batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Load the neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -524,7 +529,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
 
     labels = [[i,0] for i in list(range(surface_embed_part.shape[0]))] + [[i,1] for i in list(range(overhead_embed_part.shape[0]))]
     label_header = ['idx', 'type']
-    original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=Globals.img_mean, std=Globals.img_std)
     orientation_estimate = correlation(overhead_embed_part, surface_embed_part)
     overhead_cropped = crop_overhead(overhead_embed_part, orientation_estimate, surface_embed_part.shape[3])
     overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
@@ -564,6 +569,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     writer.add_text('avg_rank', 'Avg. Rank: {:.2f}'.format(mean))
     writer.add_text('med_rank', 'Med. Rank: {:.2f}'.format(median))
     writer.add_text('locations', 'Locations: {}'.format(count))
+
 
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 

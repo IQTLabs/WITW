@@ -61,10 +61,12 @@ class ImagePairDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, csv_path, base_path=None, transform=None):
         """
         Arguments:
+        dataset: String specifying dataset ('cvusa' or 'witw')
         csv_path: Path to CSV file containing image paths.  File format:
             surface_file.tif,overhead_file.tif
         base_path: Starting folder for any relative file paths,
-            if different from the folder containing the CSV file.
+            if different from the folder containing the CSV file
+        transform: transformation to apply, if any
         """
         self.csv_path = csv_path
         if base_path is not None:
@@ -333,8 +335,8 @@ def train(dataset='cvusa', val_quantity=1000, batch_size=16, num_workers=4, num_
     # Source the training and validation data
     trainval_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
     train_set, val_set = torch.utils.data.random_split(trainval_set, [len(trainval_set) - val_quantity, val_quantity])
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
+    val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Neural networks
     surface_encoder = SurfaceEncoder().to(device)
@@ -418,7 +420,7 @@ def test(dataset='cvusa', batch_size=16, num_workers=4):
 
     # Source the test data
     test_set = ImagePairDataset(dataset=dataset, csv_path=csv_path, transform=transform)
-    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=num_workers)
 
     # Load the neural network
     surface_encoder = SurfaceEncoder().to(device)
