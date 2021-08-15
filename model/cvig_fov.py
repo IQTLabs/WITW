@@ -111,7 +111,7 @@ class Resize(object):
         """
         self.fov = fov
         self.surface_width = int(self.fov / 360 * Globals.surface_width_max)
-        self.panorama = Globals.path_formats['dataset'].panorama
+        self.panorama = Globals.path_formats[dataset]['panorama']
         self.random_orientation = random_orientation
 
     def __call__(self, data):
