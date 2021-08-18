@@ -472,7 +472,6 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
 
                 if phase == 'train' and mining.mining_pool_ready:
                     hard_neg_idxs = mining.mining_pool[[mining.dataidx2miningidx[idx.item()] for idx in data['idx']],np.random.randint(instance_pool_size, size=len(data['idx']))]
-                    print(hard_neg_idx.shape)
                     temp_surface = []
                     temp_polar = []
                     temp_idx = []
