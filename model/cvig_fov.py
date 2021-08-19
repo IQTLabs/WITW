@@ -406,7 +406,7 @@ def triplet_loss(distances, alpha=10.):
     return soft_margin_triplet_loss
 
 
-def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_workers=12, num_epochs=999999):
+def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_workers=12, num_epochs=999999, mining=True):
 
     random_seed = 7
     np.random.seed(random_seed)
@@ -431,7 +431,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
     val_sampler = torch.utils.data.sampler.SubsetRandomSampler(val_indices)
     train_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=val_sampler)
-    mining = GlobalMining(train_indices, fov, 10, 5, device)
+    if mining: 
+        global_mining = GlobalMining(train_indices, fov, 10, 5, device)
 
     # Neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -469,8 +470,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
             #Loop through batches of data
             for batch, data in enumerate(loader):
 
-                if phase == 'train' and mining.mining_pool_ready: 
-                    hard_neg_idxs = mining.mining_pool[[mining.dataidx2miningidx[idx.item()] for idx in data['idx']],0]
+                if mining and phase == 'train' and global_mining.mining_pool_ready: 
+                    hard_neg_idxs = global_mining.mining_pool[[global_mining.dataidx2miningidx[idx.item()] for idx in data['idx']],0]
                     temp_surface = []
                     temp_polar = []
                     temp_idx = []
@@ -504,9 +505,10 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
                         optimizer.zero_grad()
                         loss.backward()
                         optimizer.step()
-                        miningidxs = [mining.dataidx2miningidx[idx.item()] for idx in data['idx']]
-                        mining.global_surface_embed[miningidxs] = surface_embed
-                        mining.global_overhead_embed[miningidxs] = overhead_embed
+                        if mining: 
+                            miningidxs = [global_mining.dataidx2miningidx[idx.item()] for idx in data['idx']]
+                            global_mining.global_surface_embed[miningidxs] = surface_embed
+                            global_mining.global_overhead_embed[miningidxs] = overhead_embed
 
                 count = surface_embed.size(0)
                 running_count += count
@@ -520,7 +522,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
 
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
         
-        mining.update_mining_pool()
+        if mining: 
+            global_mining.update_mining_pool()
 
         labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
         label_header = ['idx', 'type']
@@ -641,9 +644,13 @@ if __name__ == '__main__':
                         choices=range(6, 361),
                         metavar='{6-360}',
                         help='The field of view for cropping street level images. [Default = 360]')
+    parser.add_argument('--mining',
+                        action='store_true', 
+                        help='Use global negative mining. Only used in training.')
+
     args = parser.parse_args()
     print(args)
     if args.mode == 'train':
-        train(dataset=args.dataset, fov=args.fov)
+        train(dataset=args.dataset, fov=args.fov, mining=args.mining)
     elif args.mode == 'test':
         test(dataset=args.dataset, fov=args.fov)
