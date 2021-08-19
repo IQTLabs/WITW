@@ -316,18 +316,18 @@ def download_photos(metadata, cfg):
                 # file_path=f'{directory}/{file_name}'
                 # chunks=bytearray()
                 # with open(file_path, 'wb') as download_file:
-                #     try:
-                        with httpx.stream("GET", url) as response:
+                try:
+                    with httpx.stream("GET", url) as response:
 
-                            with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                        with tqdm(unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                            num_bytes_downloaded = response.num_bytes_downloaded
+                            for chunk in response.iter_bytes():
+                                chunks.extend(chunk)
+                                download_file.write(chunk)
+                                progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
                                 num_bytes_downloaded = response.num_bytes_downloaded
-                                for chunk in response.iter_bytes():
-                                    chunks.extend(chunk)
-                                    download_file.write(chunk)
-                                    progress.update(response.num_bytes_downloaded - num_bytes_downloaded)
-                                    num_bytes_downloaded = response.num_bytes_downloaded
-                #     except httpx.ReadTimeout as err:
-                #         print(f'error downloading file {city}/{file_name}')
+                except httpx.ReadTimeout as err:
+                    print(f'error downloading file {city}/{file_name}')
 
                 # try:
                 #     client.put_object(Body=chunks, Bucket=BUCKET, Key=f'{city }/{file_name}')
