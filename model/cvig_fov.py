@@ -10,7 +10,7 @@ import random
 import numpy as np
 import pandas as pd
 from skimage import io
-from datetime import datetime 
+from datetime import datetime
 
 import torch
 import torchvision
@@ -89,8 +89,8 @@ class ImagePairDataset(torch.utils.data.Dataset):
             data = self.transform(data)
         return data
 
-class GlobalMining(object): 
-    def __init__(self, indices, fov, mining_pool_size, instance_pool_size, device): 
+class GlobalMining(object):
+    def __init__(self, indices, fov, mining_pool_size, instance_pool_size, device):
         self.dataset_len = len(indices)
         overhead_embed_shape = [16,4,int(Globals.surface_width_max / 8)]
         surface_embed_shape = [16,4,int(fov / 360 * Globals.surface_width_max / 8)]
@@ -102,13 +102,13 @@ class GlobalMining(object):
         assert self.mining_pool_size < self.dataset_len
         self.mining_pool_ready = False
         self.dataidx2miningidx = {}
-        for i,idx in enumerate(indices): 
+        for i,idx in enumerate(indices):
             self.dataidx2miningidx[idx] = i
         self.device = device
         self.indices = indices
 
 
-    def update_mining_pool(self): 
+    def update_mining_pool(self):
         data_pool_idxs = np.array(random.sample(self.indices, self.mining_pool_size))
         mining_pool_idxs = np.array([self.dataidx2miningidx[idx] for idx in data_pool_idxs])
         overhead_mining_pool = self.global_overhead_embed[mining_pool_idxs, :]
@@ -121,7 +121,7 @@ class GlobalMining(object):
             distances = torch.squeeze(distances)
             self.mining_pool[idx] = data_pool_idxs[torch.argsort(distances, dim=0).cpu()[-self.instance_pool_size:]]
         self.mining_pool_ready = True
-        
+
 class Resize(object):
     """
     Resize the images to fit model and crop to fov.
@@ -175,7 +175,7 @@ class ImageNormalization(object):
         for key in self.keys:
             data[key] = self.norm(data[key] / 255.)
         return data
-        
+
 def inverse_normalize(tensor, mean, std):
     for t, m, s in zip(tensor, mean, std):
         t.mul_(s).add_(m)
@@ -431,8 +431,8 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
     val_sampler = torch.utils.data.sampler.SubsetRandomSampler(val_indices)
     train_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(trainval_set, batch_size=batch_size, num_workers=num_workers, sampler=val_sampler)
-    if mining: 
-        global_mining = GlobalMining(train_indices, fov, 10, 5, device)
+    instance_pool_size = 100
+    mining = GlobalMining(train_indices, fov, 10000, instance_pool_size, device)
 
     # Neural networks
     surface_encoder = FOV_DSM(circ_padding=False).to(device)
@@ -470,12 +470,12 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=32, num_worker
             #Loop through batches of data
             for batch, data in enumerate(loader):
 
-                if mining and phase == 'train' and global_mining.mining_pool_ready: 
-                    hard_neg_idxs = global_mining.mining_pool[[global_mining.dataidx2miningidx[idx.item()] for idx in data['idx']],0]
+                if mining and phase == 'train' and mining.mining_pool_ready:
+                    hard_neg_idxs = global_mining.mining_pool[[global_mining.dataidx2miningidx[idx.item()] for idx in data['idx']],np.random.randint(instance_pool_size, size=len(data['idx']))]
                     temp_surface = []
                     temp_polar = []
                     temp_idx = []
-                    for idx in hard_neg_idxs: 
+                    for idx in hard_neg_idxs:
                         temp_surface.append(trainval_set[idx]['surface'])
                         temp_polar.append(trainval_set[idx]['polar'])
                         temp_idx.append(trainval_set[idx]['idx'])
@@ -590,7 +590,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     overhead_cropped = crop_overhead(overhead_embed_part, orientation_estimate, surface_embed_part.shape[3])
     overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
     writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
-    
+
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
