@@ -41,3 +41,4 @@ def handler(event, context):
             'statusCode':400,
             'body': json.dumps('No city paramter provided')
             }
+            

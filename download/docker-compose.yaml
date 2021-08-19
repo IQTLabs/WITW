@@ -19,3 +19,4 @@ secrets:
     file: ./flickr_api_secret.txt
   aws_secrets:
     file: ./aws_secrets.txt
+    

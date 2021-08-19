@@ -26,5 +26,5 @@ test_witw: build test_witw_nobuild
 test_witw_nobuild:
 	@echo
 	@echo "Running Train on data files $(DATA) with fov $(FOV)"
-	@docker run -it -v "$(DATA):/data2" -v "$(PWD)/weights:/weights" --shm-size=3g --gpus all witw-model --mode test --dataset witw --fov $(FOV)
+	@docker run -it -v "$(DATA):/witw-model/data2" -v "$(PWD)/weights:/weights" --shm-size=3g --gpus all witw-model --mode test --dataset witw --fov $(FOV)
 	@echo
