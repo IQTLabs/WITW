@@ -11,8 +11,12 @@ services:
     secrets:
       - flickr_api_key
       - flickr_api_secret
+      - aws_secrets
 secrets:
   flickr_api_key:
     file: ./flickr_api_key.txt
   flickr_api_secret:
     file: ./flickr_api_secret.txt
+  aws_secrets:
+    file: ./aws_secrets.txt
+    
