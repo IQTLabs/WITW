@@ -19,11 +19,13 @@ PRIVACY_FILTER = 1 #only public metadata
 CONTENT_TYPE = 1 #only metadata
 HAS_GEO = True  #only geotagged metadata
 GEO_CTX = 0     #0=all, 1=indoor, 2=outdoor
-BUCKET='witw-quick'
+BUCKET = 'witw-quick'
+SECRETS_DIR = '/run/secrets'
+DATA_DIR = '/data'
 
 def get_aws_access_key_id():
     try:
-        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+        with open(f'{SECRETS_DIR}/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             aki = lines[1].strip().split('=')[1]
             return aki
@@ -32,7 +34,7 @@ def get_aws_access_key_id():
         return None
 def get_aws_secret_access_key():
     try:
-        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+        with open(f'{SECRETS_DIR}/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             sak = lines[2].strip().split('=')[1]
             return sak
@@ -41,7 +43,7 @@ def get_aws_secret_access_key():
 
 def get_aws_session_token():
     try:
-        with open('/run/secrets/aws_secrets', 'r') as secret_file:
+        with open(f'{SECRETS_DIRS}/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             st = lines[3].strip().split('=')[1]
             return st
@@ -50,7 +52,7 @@ def get_aws_session_token():
 
 def get_secret(secret_name):
     try:
-        with open('/run/secrets/{0}'.format(secret_name), 'r') as secret_file:
+        with open('{0}/{1}'.format(SECRETS_DIR, secret_name), 'r') as secret_file:
             return secret_file.read()
     except IOError:
         return None
@@ -126,7 +128,7 @@ def get_known_urls(cfg):
     urls = {}
     for key in cfg['cities']:
         city=key.replace(" ", "_")
-        file_path=f'/data/{city}/urls.txt'
+        file_path=f'{DATA_DIR}/{city}/urls.txt'
         city_urls=set()
         if os.path.exists(file_path):
             with open(file_path, 'r') as f:
@@ -139,7 +141,7 @@ def get_known_urls(cfg):
 def write_urls(urls, cfg):
     for key in cfg['cities']:
         city=key.replace(" ", "_")
-        directory=os.path.join('/data', city)
+        directory=os.path.join(DATA_DIR, city)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
@@ -248,7 +250,7 @@ def fetch_metadata(cfg, metadata, urls):
 def write_metadata(metadata, cfg):
     for key in metadata:
         city=key.replace(" ", "_")
-        directory=os.path.join('data',city)
+        directory=os.path.join(DATA_DIR,city)
         if not os.path.exists(directory):
             os.mkdir(directory)
 
@@ -262,7 +264,7 @@ def read_metadata(cfg, urls):
     metadata = {}
     for key in cfg['cities']:
         city=key.replace(" ", "_")
-        file_path=f'/data/{city}/metadata.json'
+        file_path=f'{DATA_DIR}/{city}/metadata.json'
         if os.path.exists(file_path):
             with open(file_path, 'r') as f:
                 loaded = json.load(f)
@@ -286,7 +288,7 @@ def download_photos(metadata, cfg):
             continue
 
         city=key.replace(" ", "_")
-        directory=f'/data/{city}'
+        directory=f'{DATA_DIR}/{city}'
         if not os.path.exists(directory):
             os.mkdir(directory)
 
