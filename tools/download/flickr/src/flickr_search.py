@@ -43,7 +43,7 @@ def get_aws_secret_access_key():
 
 def get_aws_session_token():
     try:
-        with open(f'{SECRETS_DIRS}/aws_secrets', 'r') as secret_file:
+        with open(f'{SECRETS_DIR}/aws_secrets', 'r') as secret_file:
             lines = secret_file.readlines()
             st = lines[3].strip().split('=')[1]
             return st
