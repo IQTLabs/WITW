@@ -16,4 +16,3 @@ def get_secret(secret_root, secret_name):
             return secret_file.read()
     except IOError:
         return None
-        
