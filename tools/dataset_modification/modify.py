@@ -11,10 +11,9 @@ import torchvision
 
 def file_to_batch(path):
     """
-    Convert a single image file to batch of size 1
+    Convert an image file to a batch of size 1
     """
     raw = io.imread(path)
-    #image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
     image = torch.from_numpy(raw.transpose((2, 0, 1)))
     batch = image.unsqueeze(0)
     return batch
@@ -22,12 +21,11 @@ def file_to_batch(path):
 
 def batch_to_file(batch, path):
     """
-    Convert a batch of size 1 to image file
+    Convert a batch of size 1 to an image file
     """
     image = torch.squeeze(batch, dim=0)
     raw = image.numpy().transpose((1, 2, 0))
     io.imsave(path, raw)
-    #torchvision.utils.save_image(image, path, value_range=(0,255))
 
 
 def main(options, surface_in, overhead_in, surface_out, overhead_out):
@@ -38,11 +36,26 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
     names = sorted(list(set(surface_names).intersection(overhead_names)))
     os.makedirs(surface_out, exist_ok=True)
     os.makedirs(overhead_out, exist_ok=True)
+    torch.no_grad = True
 
     # Loop through image pairs
     for name in tqdm.tqdm(names):
         surface = file_to_batch(os.path.join(surface_in, name))
         overhead = file_to_batch(os.path.join(overhead_in, name))
+
+        _, _, surface_height, surface_width = surface.size()
+        _, _, overhead_height, overhead_width = overhead.size()
+        surface_extend = surface.repeat([1,1,1,2])
+
+        # Execute specified options
+        if 10 in options:
+            # Given a panorama, return a randomly-oriented slice of
+            # hard-wired horizontal angular size.
+            fov = 70
+            width = round(fov / 360 * surface_width)
+            start = torch.randint(surface_width, ())
+            surface = torchvision.transforms.functional.crop(
+                surface_extend, 0, start, surface_height, width)
 
         if 1 in options:
             batch_to_file(surface, os.path.join(surface_out, name))
