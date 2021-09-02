@@ -2,7 +2,12 @@
 
 import os
 import argparse
+import numpy as np
 from skimage import io
+import tqdm
+import torch
+import torchvision
+
 
 def file_to_batch(path):
     """
@@ -10,14 +15,16 @@ def file_to_batch(path):
     """
     raw = io.imread(path)
     image = torch.from_numpy(raw.astype(np.float32).transpose((2, 0, 1)))
-    batch = torch.unsqueeze(0) # Convert image to batch of size 1
+    batch = image.unsqueeze(0)
     return batch
+
 
 def batch_to_file(batch, path):
     """
     Convert a batch of size 1 to image file
     """
-    pass
+    image = torch.squeeze(batch, dim=0)
+    torchvision.utils.save_image(image, path)
 
 
 def main(options, surface_in, overhead_in, surface_out, overhead_out):
@@ -25,9 +32,21 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
     # Setup
     surface_names = os.listdir(surface_in)
     overhead_names = os.listdir(overhead_in)
+    names = sorted(list(set(surface_names).intersection(overhead_names)))
     os.makedirs(surface_out, exist_ok=True)
     os.makedirs(overhead_out, exist_ok=True)
 
+    # Loop through image pairs
+    for name in tqdm.tqdm(names):
+        surface = file_to_batch(os.path.join(surface_in, name))
+        overhead = file_to_batch(os.path.join(overhead_in, name))
+
+        if 1 in options:
+            batch_to_file(surface, os.path.join(surface_out, name))
+        if 2 in options:
+            batch_to_file(surface, os.path.join(surface_out, name))
+        
+    """
     # Loop through views, then through images
     # Execute selected options
     for view in ['surface', 'overhead']:
@@ -42,13 +61,13 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
         for name in names:
             path_in = os.path.join(dir_in, name)
             path_out = os.path.join(dir_out, name)
+
+            # Load input images
+            surface = file_to_batch(path)
             print(path_in)
             print(path_out)
             print()
 
-
-
-    """
     for option in options:
         print('Option', option)
         if option == 0: # Filler; does nothing
