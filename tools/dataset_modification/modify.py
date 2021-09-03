@@ -71,12 +71,17 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
             # combinations similar to a collection of real photographs.
             fov_min = 30.
             fov_max = 60.
-            aov_degrees = fov_min + (fov_max - fov_min) * torch.rand(())
+            aov_degrees = fov_min + (fov_max - fov_min) * torch.rand(()).item()
             aov_pixels = aov_degrees / 360 * surface_width
-            aspect_index = np.argmax(aspect_cumsum > torch.rand(()))
-            height = torch.round(aov_pixels * aspect_model[aspect_index, 1])
-            width = torch.round(aov_pixels * aspect_model[aspect_index, 2])
-                
+            aspect_index = np.argmax(aspect_cumsum > torch.rand(()).item())
+            height = round(aov_pixels * aspect_model[aspect_index, 1])
+            width = round(aov_pixels * aspect_model[aspect_index, 2])
+            left = torch.randint(surface_width, ()).item()
+            vert_center = (surface_height - height) / 2
+            vert_range = min(height / 3, surface_height - height)
+            top = round(vert_center + (torch.rand(()).item() - 0.5) * vert_range)
+            surface = torchvision.transforms.functional.crop(
+                surface_extend, top, left, height, width)
 
         if 1 in options:
             batch_to_file(surface, os.path.join(surface_out, name))
