@@ -82,6 +82,22 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
             top = round(vert_center + (torch.rand(()).item() - 0.5) * vert_range)
             surface = torchvision.transforms.functional.crop(
                 surface_extend, top, left, height, width)
+        if 40 in options:
+            # Center-crop overhead image, to preserve the effect
+            # of an accurate geotag.
+            overhead_len = 550
+            top = round((overhead_height - overhead_len) / 2)
+            left = round((overhead_width - overhead_len) / 2)
+            overhead = torchvision.transforms.functional.crop(
+                overhead, top, left, overhead_len, overhead_len)
+        if 50 in options:
+            # Random-crop overhead image, to create the effect
+            # of an inaccurate geotag.
+            overhead_len = 550
+            top = torch.randint(overhead_height - overhead_len, ()).item()
+            left = torch.randint(overhead_width - overhead_len, ()).item()
+            overhead = torchvision.transforms.functional.crop(
+                overhead, top, left, overhead_len, overhead_len)
 
         if 1 in options:
             batch_to_file(surface, os.path.join(surface_out, name))
