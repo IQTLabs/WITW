@@ -25,7 +25,7 @@ def batch_to_file(batch, path):
     """
     image = torch.squeeze(batch, dim=0)
     raw = image.numpy().transpose((1, 2, 0))
-    io.imsave(path, raw)
+    io.imsave(path, raw, check_contrast=False)
 
 
 def main(options, surface_in, overhead_in, surface_out, overhead_out):
@@ -37,6 +37,16 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
     os.makedirs(surface_out, exist_ok=True)
     os.makedirs(overhead_out, exist_ok=True)
     torch.no_grad = True
+
+    # Define various constants
+    aspect_model = np.array([[.02, 1., 9./16.],
+                             [.12, 1., 2./3.],
+                             [.13, 1., 3./4.],
+                             [.05, 1., 1.],
+                             [.30, 3./4., 1.],
+                             [.33, 2./3., 1.],
+                             [.05, 9./16., 1.]])
+    aspect_cumsum = np.cumsum(aspect_model[:, 0])
 
     # Loop through image pairs
     for name in tqdm.tqdm(names):
@@ -56,6 +66,17 @@ def main(options, surface_in, overhead_in, surface_out, overhead_out):
             start = torch.randint(surface_width, ())
             surface = torchvision.transforms.functional.crop(
                 surface_extend, 0, start, surface_height, width)
+        if 20 in options:
+            # Given a panorama, return a mix of zoom/orientation/aspect ratio
+            # combinations similar to a collection of real photographs.
+            fov_min = 30.
+            fov_max = 60.
+            aov_degrees = fov_min + (fov_max - fov_min) * torch.rand(())
+            aov_pixels = aov_degrees / 360 * surface_width
+            aspect_index = np.argmax(aspect_cumsum > torch.rand(()))
+            height = torch.round(aov_pixels * aspect_model[aspect_index, 1])
+            width = torch.round(aov_pixels * aspect_model[aspect_index, 2])
+                
 
         if 1 in options:
             batch_to_file(surface, os.path.join(surface_out, name))
