@@ -9,9 +9,8 @@ import tqdm
 import pathlib
 import numpy as np
 import pandas as pd
-import tifffile
 from skimage import io
-from datetime import datetime 
+from datetime import datetime
 
 import torch
 import torchvision
@@ -90,13 +89,7 @@ class ImagePairDataset(torch.utils.data.Dataset):
         overhead_raw = io.imread(overhead_path)
         surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
         overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
-        cresi_path = os.path.join(self.base_path, 'cresi_uint8', os.path.splitext(os.path.basename(overhead_path))[0]+'.tif')
-        if os.path.exists(cresi_path): 
-            cresi_raw = tifffile.imread(cresi_path)
-            cresi = torch.from_numpy(cresi_raw.astype(np.float32).transpose((2,0,1)))
-        else:
-            cresi = None
-        data = {'idx':idx, 'surface':surface, 'overhead':overhead, 'cresi':cresi}
+        data = {'idx':idx, 'surface':surface, 'overhead':overhead}
 
         # Transform data
         if self.transform is not None:
@@ -154,7 +147,7 @@ class ImageNormalization(object):
         for key in self.keys:
             data[key] = self.norm(data[key] / 255.)
         return data
-        
+
 def inverse_normalize(tensor, mean, std):
     for t, m, s in zip(tensor, mean, std):
         t.mul_(s).add_(m)
@@ -474,7 +467,7 @@ def train(dataset='cvusa', fov=360, val_quantity=1000, batch_size=64, num_worker
                             epoch * len(loader) + batch)
 
             print('  %5s: avg loss = %f' % (phase, running_loss / running_count))
-        
+
         labels = [[i,0] for i in list(range(surface_embed.shape[0]))] + [[i,1] for i in list(range(overhead_embed.shape[0]))]
         label_header = ['idx', 'type']
         original_images = inverse_normalize(torch.cat((torch.nn.functional.pad(surface, (0,overhead.shape[-1] - surface.shape[-1])), overhead), dim=0), mean=Globals.img_mean, std=Globals.img_std)
@@ -541,7 +534,7 @@ def test(dataset='cvusa', fov=360, batch_size=64, num_workers=8):
     overhead_cropped = crop_overhead(overhead_embed_part, orientation_estimate, surface_embed_part.shape[3])
     overhead_cropped = overhead_cropped[range(overhead_cropped.shape[0]),range(overhead_cropped.shape[0])]
     writer.add_embedding(torch.cat((surface_embed_part.view(surface_embed_part.shape[0], -1),overhead_cropped.reshape(overhead_cropped.shape[0], -1)), dim=0), metadata=[[l,0] for l in labels], metadata_header=label_header, label_img=original_images, global_step=0, tag='test_embedding')
-    
+
     # Measure performance
     count = surface_embed.size(0)
     ranks = np.zeros([count], dtype=int)
