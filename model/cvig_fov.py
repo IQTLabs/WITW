@@ -9,6 +9,7 @@ import tqdm
 import pathlib
 import numpy as np
 import pandas as pd
+import tifffile
 from skimage import io
 from datetime import datetime 
 
@@ -89,7 +90,13 @@ class ImagePairDataset(torch.utils.data.Dataset):
         overhead_raw = io.imread(overhead_path)
         surface = torch.from_numpy(surface_raw.astype(np.float32).transpose((2, 0, 1)))
         overhead = torch.from_numpy(overhead_raw.astype(np.float32).transpose((2, 0, 1)))
-        data = {'surface':surface, 'overhead':overhead}
+        cresi_path = os.path.join(self.base_path, 'cresi_uint8', os.path.splitext(os.path.basename(overhead_path))[0]+'.tif')
+        if os.path.exists(cresi_path): 
+            cresi_raw = tifffile.imread(cresi_path)
+            cresi = torch.from_numpy(cresi_raw.astype(np.float32).transpose((2,0,1)))
+        else:
+            cresi = None
+        data = {'idx':idx, 'surface':surface, 'overhead':overhead, 'cresi':cresi}
 
         # Transform data
         if self.transform is not None:
