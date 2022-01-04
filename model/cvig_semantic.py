@@ -329,7 +329,6 @@ def correlation(overhead_embed, surface_embed):
 
     o_c, o_h, o_w = overhead_embed.shape[1:]
     s_c, s_h, s_w = surface_embed.shape[1:]
-    assert o_h == s_h, o_c == s_c
 
     # append beginning of overhead embedding to the end to get a full correlation
     n = s_w - 1
@@ -339,7 +338,6 @@ def correlation(overhead_embed, surface_embed):
     # calculate correlation using convolution
     out = torch.nn.functional.conv2d(x, f, stride=1)
     h, w = out.shape[-2:]
-    assert h==1, w==o_w
 
     # get index of maximum correlation
     out = torch.squeeze(out, -2)
@@ -368,7 +366,6 @@ def crop_overhead(overhead_embed, orientation, surface_width):
 
     # crop overhead embeddings
     overhead_cropped = overhead_reindex[:,:,:,:,:surface_width] # shape = [batch_overhead, batch_surface, c, h, surface_width]
-    assert overhead_cropped.shape[4] == surface_width
 
     return overhead_cropped
 
