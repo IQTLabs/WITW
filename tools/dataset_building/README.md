@@ -1,0 +1,1 @@
+Note: The file `create_8bit_images.py` is reproduced from `https://github.com/avanetten/cresi/blob/master/cresi/data_prep/create_8bit_images.py`.  That file is Copyright 2020 Adam Van Etten and licensed under the Apache license, Version 2.0.
