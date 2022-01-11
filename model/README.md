@@ -20,7 +20,7 @@ optional arguments:
   --fov {6-360}         The field of view for cropping street level images. [Default = 360]
 ```
 ## Using the Docker container
-Using the docker container requires the abilty to interface with Nvidia GPUs. To ensure that your machine supports Nvidia GPUs and has the proper drivers installed please run `nvidia-smi`. The docker container can be run natively but requires some specific flags to be set:
+Using the docker container requires the ability to interface with Nvidia GPUs. To ensure that your machine supports Nvidia GPUs and has the proper drivers installed please run `nvidia-smi`. The docker container can be run natively but requires some specific flags to be set:
 ```
 > docker run -it -v "<path to data>:/witw-model/data" -v "$(PWD)/weights:/witw-model/weights" --ipc=host --gpus all witw-model --mode {train, test} --dataset {cvusa,witw} --fov {6-360}
 
