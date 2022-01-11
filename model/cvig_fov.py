@@ -357,7 +357,7 @@ def l2_distance(overhead_cropped, surface_embed):
     surface_normalized = torch.div(surface_normalized, torch.linalg.norm(surface_normalized, ord=2, dim=-1).unsqueeze(-1))
     surface_normalized = surface_normalized.view(batch_surface, c, h, surface_width)
 
-    # calculate L2 distance
+    # calculate chord distance
     distance = 2*(1-torch.sum(overhead_normalized * surface_normalized.unsqueeze(0), (2, 3, 4))) # shape = [batch_overhead, batch_surface]
 
     return distance
