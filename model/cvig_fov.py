@@ -154,7 +154,7 @@ def inverse_normalize(tensor, mean, std):
     return tensor
 
 def bilinear_interpolate(im, x, y):
-    # https://stackoverflow.com/a/12729229
+    # Source: https://stackoverflow.com/a/12729229
 
     assert x.shape == y.shape
     x = np.asarray(x)
@@ -316,6 +316,10 @@ def correlation(overhead_embed, surface_embed):
 
 
 def crop_overhead(overhead_embed, orientation, surface_width):
+    """
+    Applies cropping from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
+    CVPR 2020.
+    """
     batch_overhead, batch_surface = orientation.shape
     c, h, w = overhead_embed.shape[1:]
     # duplicate overhead embeddings according to batch size
@@ -360,7 +364,10 @@ def l2_distance(overhead_cropped, surface_embed):
 
 
 def triplet_loss(distances, alpha=10.):
-
+    """
+    Applies triplet loss from "Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching"
+    CVPR 2020.
+    """
     batch_size = distances.shape[0]
 
     matching_dists = torch.diagonal(distances)
