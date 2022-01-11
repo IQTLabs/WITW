@@ -48,6 +48,6 @@ python cvig_fov.py --mode=test --dataset=cvusa --fov=90
 # Notes
 Script has been tested with Python 3.8.2
 
-cvig_fov.py and cvig_semantic.py are based on Shi et al. 2020.  See *Yujiao Shi, Xin Yu, Dylan Campbell, Hongdong Li. Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2020.*
+[`cvig_fov.py`](cvig_fov.py) and [`cvig_semantic.py`](cvig_semantic.py) are based on [Shi et al. 2020](https://github.com/shiyujiao/cross_view_localization_DSM).  See *Yujiao Shi, Xin Yu, Dylan Campbell, Hongdong Li. Where am I looking at? Joint Location and Orientation Estimation by Cross-View Matching. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2020.*
 
-cvig_baseline.py is based on Liu & Li 2019.  See *Liu Liu; Hongdong Li. Lending Orientation to Neural Networks for Cross-view Geo-localization. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2019.*
+[`cvig_baseline.py`](cvig_baseline.py) is based on [Liu & Li 2019](https://github.com/Liumouliu/OriCNN).  See *Liu Liu; Hongdong Li. Lending Orientation to Neural Networks for Cross-view Geo-localization. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), June 2019.*
