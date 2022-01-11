@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 
-"""
-Cross-View Image Geolocalization (CVIG)
-2020-12-21 ~ D.P.Hogan
-"""
-
 import os
 import sys
 import glob
