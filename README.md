@@ -4,4 +4,6 @@ The *Where in the World* (WITW) project has developed tools and capabilities for
 
 In this repo, the [`model`](model) folder contains the deep learning model and instructions on how to run it, while the [`tools`](tools) folder contains various software tools used for the project.
 
-More information on *Where in the World* can be found in our blog post series: *(links to come)*
+More information on *Where in the World* can be found in our blog post series:
+
+- [Where in the World, Part 1: A New Dataset for Cross-view Image Geolocalization](https://www.iqt.org/where-in-the-world-part-1-a-new-dataset-for-cross-view-image-geolocalization/)
