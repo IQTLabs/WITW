@@ -7,3 +7,5 @@ In this repo, the [`model`](model) folder contains the deep learning model and i
 More information on *Where in the World* can be found in our blog post series:
 
 - [Where in the World, Part 1: A New Dataset for Cross-view Image Geolocalization](https://www.iqt.org/where-in-the-world-part-1-a-new-dataset-for-cross-view-image-geolocalization/)
+- [Where in the World, Part 2: A Deep Learning Model for Cross-view Image Geolocalization](https://www.iqt.org/where-in-the-world-part-2-a-deep-learning-model-for-cross-view-image-geolocalization/)
+- [Where in the World, Part 3: Further Analysis of  Cross-view Image Geolocalization](https://www.iqt.org/where-in-the-world-part-3-further-analysis-of-cross-view-image-geolocalization/)
