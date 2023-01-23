@@ -1,4 +1,4 @@
-torch==1.8.1
+torch==1.13.1
 numpy==1.19.5
 scikit_image==0.18.1
 pandas==1.2.1
